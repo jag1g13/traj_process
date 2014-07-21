@@ -52,6 +52,22 @@ cg_map = [["C1", "O1", "HO1"], ["C2", "O2", "HO2"], ["C3", "O3", "HO3"],\
 cg_bond_pairs = [["C1", "C2"], ["C2", "C3"], ["C3", "C4"], ["C4", "C5"],\
                  ["C5", "O5"], ["O5", "C1"]]
 
+#bond angles between cg sites
+cg_bond_triples = [["C1", "C2", "C3"], ["C2", "C3", "C4"], ["C3", "C4", "C5"],\
+                   ["C4", "C5", "O5"], ["C5", "O5", "C1"], ["O5", "C1", "C2"]]
+
+#bond dihedrals between cg sites
+cg_bond_quads = [["C1", "C2", "C3", "C4"], ["C2", "C3", "C4", "C5"], ["C3", "C4", "C5", "O5"],\
+                 ["C4", "C5", "O5", "C1"], ["C5", "O5", "C1", "C2"], ["O5", "C1", "C2", "C3"]]
+
+#bonds within a cg site
+cg_internal_bonds = {"C1": [["C1", "O1"], ["O1", "HO1"]],\
+                     "C2": [["C2", "O2"], ["O2", "HO2"]],\
+                     "C3": [["C3", "O3"], ["O3", "HO3"]],\
+                     "C4": [["C4", "O4"], ["O4", "HO4"]],\
+                     "C5": [["C5", "C6"], ["C6", "O6"], ["O6", "HO6"]],\
+                     "O5": [["O5", "O5"]]}
+
 class Atom:
     def __init__(self, atom_type, loc):
         self.atom_type = atom_type
@@ -79,12 +95,12 @@ class Frame:
         #print("Distance between atoms {0} and {1} is {2}".format(num1, num2, dist))
         return dist
     
-    def bond_angle(self, num1, num2, num3):
+    def bond_angle(self, num1, num2, num3, num4):
         """
         angle at atom2 formed by bonds: 1-2 and 2-3
         """
         vec1 = (self.atoms[num2].loc - self.atoms[num1].loc)
-        vec2 = (self.atoms[num3].loc - self.atoms[num2].loc)
+        vec2 = (self.atoms[num4].loc - self.atoms[num3].loc)
         vec1 = vec1 / np.linalg.norm(vec1)
         vec2 = vec2 / np.linalg.norm(vec2)
         angle = np.arccos(np.dot(vec1, vec2))
@@ -108,13 +124,17 @@ class Frame:
             #print(dists[i])
         return dists
 
-    def get_bond_angles(self):
-        angles = np.zeros(len(bond_triples))
-        for i, triple in enumerate(bond_triples):
-            angles[i] = self.bond_angle(sugar_atom_nums[triple[0]], sugar_atom_nums[triple[1]], sugar_atom_nums[triple[2]])
-            #print(dists[i])
+    def get_bond_angles(self, request=bond_triples):
+        angles = np.zeros(len(request))
+        for i, triple in enumerate(request):
+            angles[i] = self.bond_angle(self.atom_nums[triple[0]], self.atom_nums[triple[1]], self.atom_nums[triple[1]], self.atom_nums[triple[2]])
         return angles
-        
+
+    def get_bond_dihedrals(self, request=bond_quads):
+        dihedrals = np.zeros(len(request))
+        for i, quad in enumerate(request):
+            dihedrals[i] = self.bond_angle(self.atom_nums[quad[0]], self.atom_nums[quad[1]], self.atom_nums[quad[2]], self.atom_nums[quad[3]])
+        return dihedrals
 
 def read(filename, frame_max=float("inf")):
     """
@@ -125,7 +145,7 @@ def read(filename, frame_max=float("inf")):
     try:
         f = open(filename, "r")
         filesize = os.path.getsize(filename)
-        print("Reading file - length {0:3.2f} GB".format(float(filesize)/(1024*1024*1024)))
+        print("Reading file - size {0:3.2f} GB".format(float(filesize)/(1024*1024*1024)))
     except IOError:
         print("IOError when trying to open file {0} - is the filename correct?".format(filename))
         sys.exit(1)
@@ -229,7 +249,7 @@ def calc_angles(frames, request=bond_triples, export=True):
         if(i%100 == 0):
             sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
             sys.stdout.flush()
-        angles.append(frame.get_bond_angles())
+        angles.append(frame.get_bond_angles(request))
         if export:
             angles_text = [str(num) for num in angles[-1]]
             f.write(",".join(angles_text) + "\n")
@@ -241,6 +261,74 @@ def calc_angles(frames, request=bond_triples, export=True):
     print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return angles, avg
 
+
+def calc_dihedrals(frames, request=bond_quads, export=True):
+    print("Calculating bond dihedrals")
+    if export:
+        if os.path.isfile("bond_dihedrals.csv"):
+            print("Bond dihedral output already exists.")
+            filename = raw_input("Please input new name: ")
+            if not filename:
+                filename = "bond_dihedrals.csv"
+            f = open(filename, "w")
+        else:
+            f = open("bond_dihedrals.csv", "w")
+    t_start = time.clock()
+    dihedrals = []
+    if export:
+        dihedral_names = ["-".join(quad) for quad in request]
+        f.write(",".join(dihedral_names) + "\n")
+    for i, frame in enumerate(frames):
+        perc = i * 100. / len(frames)
+        #print("Frame {0}".format(frame.num))
+        if(i%100 == 0):
+            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
+            sys.stdout.flush()
+        dihedrals.append(frame.get_bond_dihedrals(request))
+        if export:
+            dihedrals_text = [str(num) for num in dihedrals[-1]]
+            f.write(",".join(dihedrals_text) + "\n")
+    avg = np.mean(dihedrals, axis=0)
+    t_end = time.clock()
+    if export:
+        f.truncate()
+        f.close()
+    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
+    return dihedrals, avg
+
+def calc_measurements(frames, request=bond_quads, export=True):
+    print("Calculating bond dihedrals")
+    if export:
+        if os.path.isfile("bond_dihedrals.csv"):
+            print("Bond dihedral output already exists.")
+            filename = raw_input("Please input new name: ")
+            if not filename:
+                filename = "bond_dihedrals.csv"
+            f = open(filename, "w")
+        else:
+            f = open("bond_dihedrals.csv", "w")
+    t_start = time.clock()
+    dihedrals = []
+    if export:
+        dihedral_names = ["-".join(quad) for quad in request]
+        f.write(",".join(dihedral_names) + "\n")
+    for i, frame in enumerate(frames):
+        perc = i * 100. / len(frames)
+        #print("Frame {0}".format(frame.num))
+        if(i%100 == 0):
+            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
+            sys.stdout.flush()
+        dihedrals.append(frame.get_bond_dihedrals(request))
+        if export:
+            dihedrals_text = [str(num) for num in dihedrals[-1]]
+            f.write(",".join(dihedrals_text) + "\n")
+    avg = np.mean(dihedrals, axis=0)
+    t_end = time.clock()
+    if export:
+        f.truncate()
+        f.close()
+    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
+    return dihedrals, 
 
 def map_cg(frames):
     global cg_atom_nums
@@ -267,9 +355,25 @@ def map_cg(frames):
     return cg_frames
 
 
+def print_output(output_all, output, request):
+    for name, val in zip(request, output):
+        print("{0}: {1:4.3f}".format("-".join(name), val))
+
+
+def graph_output(output_all, request):
+    rearrange = zip(*output_all)
+    plt.figure()
+    for i, item in enumerate(rearrange):
+        plt.subplot(2,3, i+1)
+        plt.hist(item, bins=100)
+    plt.show()
+
 if __name__ == "__main__":
     #frames = read(r"test_cases/md.pdb")
-    export = int(sys.argv[2])
+    try:
+        export = int(sys.argv[2])
+    except IndexError:
+        export = False
     frames = read(sys.argv[1])
     np.set_printoptions(precision=3, suppress=True)
     dists = calc_dists(frames, export=export)[1]
@@ -281,7 +385,14 @@ if __name__ == "__main__":
     #for bond, angle in zip(bond_triples, angles):
         #print("{0}-{1}-{2:3}: {3:5.2f}".format(bond[0], bond[1], bond[2], angle))
     cg_frames = map_cg(frames)
-    cg_dists = calc_dists(cg_frames, cg_bond_pairs, export=False)[1]
-    print("Average cg bond lengths")
-    for bond, dist in zip(cg_bond_pairs, cg_dists):
-        print("{0}-{1:3}: {2:4.3f}".format(bond[0], bond[1], dist))
+    cg_all_dists, cg_dists = calc_dists(cg_frames, cg_bond_pairs, export=False)
+    cg_all_angles, cg_angles = calc_angles(cg_frames, cg_bond_triples, export=False)
+    cg_all_dihedrals, cg_dihedrals = calc_dihedrals(cg_frames, cg_bond_quads, export=False)
+    #print("Average cg bond lengths")
+    #for bond, dist in zip(cg_bond_pairs, cg_dists):
+        #print("{0}-{1:3}: {2:4.3f}".format(bond[0], bond[1], dist))
+    print_output(cg_all_angles, cg_angles, cg_bond_triples)
+    print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
+    graph_output(cg_all_dists, cg_bond_pairs)
+    graph_output(cg_all_angles, cg_bond_triples)
+    graph_output(cg_all_dihedrals, cg_bond_quads)
