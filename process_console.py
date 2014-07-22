@@ -4,7 +4,6 @@ import numpy as np
 import time
 import os.path
 from subprocess import call
-import matplotlib.pyplot as plt
 
 sugar_atom_nums = {}
 #sugar_atoms = ["C4", "O4", "HO4", "C3", "O3", "HO3", "C2", "O2",\
@@ -360,14 +359,6 @@ def print_output(output_all, output, request):
         print("{0}: {1:4.3f}".format("-".join(name), val))
 
 
-def graph_output(output_all, request):
-    rearrange = zip(*output_all)
-    plt.figure()
-    for i, item in enumerate(rearrange):
-        plt.subplot(2,3, i+1)
-        plt.hist(item, bins=100)
-    plt.show()
-
 if __name__ == "__main__":
     #frames = read(r"test_cases/md.pdb")
     try:
@@ -393,6 +384,3 @@ if __name__ == "__main__":
         #print("{0}-{1:3}: {2:4.3f}".format(bond[0], bond[1], dist))
     print_output(cg_all_angles, cg_angles, cg_bond_triples)
     print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
-    #graph_output(cg_all_dists, cg_bond_pairs)
-    #graph_output(cg_all_angles, cg_bond_triples)
-    #graph_output(cg_all_dihedrals, cg_bond_quads)
