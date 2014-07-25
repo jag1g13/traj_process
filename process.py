@@ -53,12 +53,13 @@ cg_bond_pairs = [["C1", "C2"], ["C2", "C3"], ["C3", "C4"], ["C4", "C5"],\
                  ["C5", "O5"], ["O5", "C1"]]
 
 #bond angles between cg sites
-cg_bond_triples = [["C1", "C2", "C3"], ["C2", "C3", "C4"], ["C3", "C4", "C5"],\
-                   ["C4", "C5", "O5"], ["C5", "O5", "C1"], ["O5", "C1", "C2"]]
+cg_bond_triples = [["O5", "C1", "C2"], ["C1", "C2", "C3"], ["C2", "C3", "C4"],\
+                   ["C3", "C4", "C5"], ["C4", "C5", "O5"], ["C5", "O5", "C1"]]
 
 #bond dihedrals between cg sites
-cg_bond_quads = [["C1", "C2", "C3", "C4"], ["C2", "C3", "C4", "C5"], ["C3", "C4", "C5", "O5"],\
-                 ["C4", "C5", "O5", "C1"], ["C5", "O5", "C1", "C2"], ["O5", "C1", "C2", "C3"]]
+cg_bond_quads = [["O5", "C1", "C2", "C3"], ["C1", "C2", "C3", "C4"],\
+                 ["C2", "C3", "C4", "C5"], ["C3", "C4", "C5", "O5"],\
+                 ["C4", "C5", "O5", "C1"], ["C5", "O5", "C1", "C2"]]
 
 #bonds within a cg site
 cg_internal_bonds = {"C1": [["C1", "O1"], ["O1", "HO1"]],\
@@ -69,12 +70,13 @@ cg_internal_bonds = {"C1": [["C1", "O1"], ["O1", "HO1"]],\
                      "O5": [["O5", "O5"]]}
 
 class Atom:
-    def __init__(self, atom_type, loc):
+    def __init__(self, atom_type, loc, charge):
         self.atom_type = atom_type
         self.loc = loc
+        self.charge = charge
 
     def __repr__(self):
-        return "<Atom {0} @ {1}, {2}, {3}>".format(self.atom_type, *self.loc)
+        return "<Atom {0} charge={1} @ {2}, {3}, {4}>".format(self.atom_type, self.charge, *self.loc)
 
 class Frame:
     def __init__(self, num, atom_nums=sugar_atom_nums):
@@ -182,7 +184,7 @@ def read(filename, frame_max=float("inf")):
         coords = [float(num) for num in [line[31:38], line[39:46], line[47:54]]]    #fixed format, just read off the right columns
         atom_type = line[12:17].strip()
         if atom_type in sugar_atoms:
-            frames[curr_frame].atoms.append(Atom(atom_type, np.array(coords)))    #must be a normal line, read coords
+            frames[curr_frame].atoms.append(Atom(atom_type, np.array(coords), atomic_charges[atom_type]))    #must be a normal line, read coords
             if curr_frame == 1:
                 sugar_atom_nums[atom_type] = int(line[7:11].strip()) - 1            #which atom number is each of the sugar atoms
     frames.pop(-1)                                              #get rid of last frame, it's empty
@@ -344,16 +346,38 @@ def map_cg(frames):
         cg_frames.append(Frame(curr_frame, cg_atom_nums))
         for i, site in enumerate(cg_sites):
             coords = np.zeros(3)
+            charge = 0.
             for atom in cg_map[i]:
                 coords = coords + frame.atoms[sugar_atom_nums[atom]].loc
+                charge = charge + frame.atoms[sugar_atom_nums[atom]].charge
             coords = coords / len(cg_map[i])
-            cg_frames[curr_frame].atoms.append(Atom(site, coords))
+            cg_frames[curr_frame].atoms.append(Atom(site, coords, charge))
             if curr_frame == 1:
                 cg_atom_nums[site] = i
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return cg_frames
 
+
+def get_dipoles(cg_frames, frames):
+    print("Calculating dipoles")
+    t_start = time.clock()
+    dipoles = []
+    for curr_frame, cg_frame in enumerate(cg_frames):
+        perc = curr_frame * 100. / len(cg_frames)
+        if(curr_frame%100 == 0):
+            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
+            sys.stdout.flush()
+        frame_dipoles = np.zeros(len(cg_sites),3)
+        for i, site in enumerate(cg_frame.atoms):
+            dipole = np.zeros(3)
+            for j, bond in enumerate(cg_internal_bonds[site.atom_type]):
+                atom1 = frames[curr_frame].atoms[atom_nums[bond[0]]]
+                atom2 = frames[curr_frame].atoms[atom_nums[bond[1]]]
+                dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
+            frame_dipoles[i] += dipole
+        dipoles.append(frame_dipoles)
+    return dipoles
 
 def print_output(output_all, output, request):
     for name, val in zip(request, output):
@@ -366,7 +390,6 @@ def graph_output(output_all, request):
     for i, item in enumerate(rearrange):
         plt.subplot(2,3, i+1)
         plt.hist(item, bins=100)
-    plt.show()
 
 if __name__ == "__main__":
     #frames = read(r"test_cases/md.pdb")
@@ -391,8 +414,10 @@ if __name__ == "__main__":
     #print("Average cg bond lengths")
     #for bond, dist in zip(cg_bond_pairs, cg_dists):
         #print("{0}-{1:3}: {2:4.3f}".format(bond[0], bond[1], dist))
+    print_output(cg_all_dists, cg_dists, cg_bond_pairs)
     print_output(cg_all_angles, cg_angles, cg_bond_triples)
     print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
     graph_output(cg_all_dists, cg_bond_pairs)
     graph_output(cg_all_angles, cg_bond_triples)
     graph_output(cg_all_dihedrals, cg_bond_quads)
+    plt.show()
