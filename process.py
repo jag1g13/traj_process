@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #from __future__ import print_function
 import sys
 import numpy as np
@@ -5,6 +6,11 @@ import time
 import os.path
 from subprocess import call
 import matplotlib.pyplot as plt
+#from libxdrfile2 import xdrfile_open, xdrfile_close, read_xtc_natoms, read_xtc, DIM, exdrOK
+import MDAnalysis.coordinates.xdrfile.libxdrfile2 as xdr
+import MDAnalysis.core.AtomGroup as AtomGroup
+from scipy import optimize
+import pylab as plb
 
 sugar_atom_nums = {}
 #sugar_atoms = ["C4", "O4", "HO4", "C3", "O3", "HO3", "C2", "O2",\
@@ -45,8 +51,12 @@ cg_sites = ["C1", "C2", "C3", "C4", "C5", "O5"]
 cg_atom_nums = {}
 
 #which atoms map to which cg site, same order as above
-cg_map = [["C1", "O1", "HO1"], ["C2", "O2", "HO2"], ["C3", "O3", "HO3"],\
-          ["C4", "O4", "HO4"], ["C5", "C6", "O6", "HO6"], ["O5"]]
+#cg_map = [["C1", "O1", "HO1"], ["C2", "O2", "HO2"], ["C3", "O3", "HO3"],\
+          #["C4", "O4", "HO4"], ["C5", "C6", "O6", "HO6"], ["O5"]]
+#cg_map = [["C1", "O1"], ["C2", "O2"], ["C3", "O3"],\
+          #["C4", "O4"], ["C5", "C6"], ["O5"]]
+cg_map = [["C1"], ["C2"], ["C3"],\
+          ["C4"], ["C5"], ["O5"]]
 
 #bonds between cg sites
 cg_bond_pairs = [["C1", "C2"], ["C2", "C3"], ["C3", "C4"], ["C4", "C5"],\
@@ -194,17 +204,47 @@ def read(filename, frame_max=float("inf")):
     return frames
 
 
+def read_xtc(grofile, xtcfile):
+    global sugar_atom_nums
+    t_start = time.clock()
+    #xtc = xdr.xdrfile_open(xtcfile, 'r')
+    #assert xtc != None, "Failed to open xtc"
+    u = AtomGroup.Universe(grofile, xtcfile)
+    sel = u.selectAtoms("not resname SOL")
+    print(sel)
+    print(sel.resnames())
+    print(sel.names())
+    for name in sel.names():
+        sugar_atom_nums[name] = list(sel.names()).index(name)
+    frames = []
+    i = 0
+    num_frames = len(u.trajectory)
+    print(num_frames)
+    for ts in u.trajectory:
+        perc = i * 100. / num_frames
+        if(i%100 == 0):
+            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
+            sys.stdout.flush()
+        frames.append(Frame(i))
+        for atomname, coords in zip(sel.names(), sel.get_positions(ts)):
+            frames[i].atoms.append(Atom(atomname, coords, atomic_charges[atomname]))
+        i += 1
+    t_end = time.clock()
+    print("\rRead {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
+    return frames
+
+
 def calc_dists(frames, request=bond_pairs, export=True):
     print("Calculating bond lengths")
     if export:
-        if os.path.isfile("bond_lengths.csv"):
-            print("Bond length output already exists.")
-            filename = raw_input("Please input new name: ")
-            if not filename:
-                filename = "bond_lengths.csv"
-            f = open(filename, "w")
-        else:
-            f = open("bond_lengths.csv", "w")
+        #if os.path.isfile("bond_lengths.csv"):
+            #print("Bond length output already exists.")
+            #filename = raw_input("Please input new name: ")
+            #if not filename:
+                #filename = "bond_lengths.csv"
+            #f = open(filename, "a")
+        #else:
+        f = open("bond_lengths.csv", "a")
     t_start = time.clock()
     dists = []
     if export:
@@ -232,14 +272,14 @@ def calc_dists(frames, request=bond_pairs, export=True):
 def calc_angles(frames, request=bond_triples, export=True):
     print("Calculating bond angles")
     if export:
-        if os.path.isfile("bond_angles.csv"):
-            print("Bond angle output already exists.")
-            filename = raw_input("Please input new name: ")
-            if not filename:
-                filename = "bond_angles.csv"
-            f = open(filename, "w")
-        else:
-            f = open("bond_angles.csv", "w")
+        #if os.path.isfile("bond_angles.csv"):
+            #print("Bond angle output already exists.")
+            #filename = raw_input("Please input new name: ")
+            #if not filename:
+                #filename = "bond_angles.csv"
+            #f = open(filename, "a")
+        #else:
+        f = open("bond_angles.csv", "a")
     t_start = time.clock()
     angles = []
     if export:
@@ -267,14 +307,14 @@ def calc_angles(frames, request=bond_triples, export=True):
 def calc_dihedrals(frames, request=bond_quads, export=True):
     print("Calculating bond dihedrals")
     if export:
-        if os.path.isfile("bond_dihedrals.csv"):
-            print("Bond dihedral output already exists.")
-            filename = raw_input("Please input new name: ")
-            if not filename:
-                filename = "bond_dihedrals.csv"
-            f = open(filename, "w")
-        else:
-            f = open("bond_dihedrals.csv", "w")
+        #if os.path.isfile("bond_dihedrals.csv"):
+            #print("Bond dihedral output already exists.")
+            #filename = raw_input("Please input new name: ")
+            #if not filename:
+                #filename = "bond_dihedrals.csv"
+            #f = open(filename, "a")
+        #else:
+        f = open("bond_dihedrals.csv", "a")
     t_start = time.clock()
     dihedrals = []
     if export:
@@ -306,9 +346,9 @@ def calc_measurements(frames, request=bond_quads, export=True):
             filename = raw_input("Please input new name: ")
             if not filename:
                 filename = "bond_dihedrals.csv"
-            f = open(filename, "w")
+            f = open(filename, "a")
         else:
-            f = open("bond_dihedrals.csv", "w")
+            f = open("bond_dihedrals.csv", "a")
     t_start = time.clock()
     dihedrals = []
     if export:
@@ -359,24 +399,31 @@ def map_cg(frames):
     return cg_frames
 
 
-def get_dipoles(cg_frames, frames):
+def calc_dipoles(cg_frames, frames, export=True):
     print("Calculating dipoles")
     t_start = time.clock()
+    if export:
+        f = open("dipoles.csv", "a")
     dipoles = []
     for curr_frame, cg_frame in enumerate(cg_frames):
         perc = curr_frame * 100. / len(cg_frames)
         if(curr_frame%100 == 0):
             sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
             sys.stdout.flush()
-        frame_dipoles = np.zeros(len(cg_sites),3)
+        frame_dipoles = np.zeros((len(cg_sites),3))
         for i, site in enumerate(cg_frame.atoms):
             dipole = np.zeros(3)
             for j, bond in enumerate(cg_internal_bonds[site.atom_type]):
-                atom1 = frames[curr_frame].atoms[atom_nums[bond[0]]]
-                atom2 = frames[curr_frame].atoms[atom_nums[bond[1]]]
+                atom1 = frames[curr_frame].atoms[sugar_atom_nums[bond[0]]]
+                atom2 = frames[curr_frame].atoms[sugar_atom_nums[bond[1]]]
                 dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
             frame_dipoles[i] += dipole
         dipoles.append(frame_dipoles)
+        if export:
+            f.write(frame_dipoles)
+    f.close()
+    t_end = time.clock()
+    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return dipoles
 
 def print_output(output_all, output, request):
@@ -389,18 +436,32 @@ def graph_output(output_all, request):
     plt.figure()
     for i, item in enumerate(rearrange):
         plt.subplot(2,3, i+1)
-        plt.hist(item, bins=100)
+        data = plt.hist(item, bins=100, normed=1)
+        def f(x, a, b, c):
+            return a * plb.exp(-(x-b)**2.0 / (2*c**2))
+        x = [0.5*(data[1][j] + data[1][j+1]) for j in xrange(len(data[1])-1)]
+        y = data[0]
+        try:
+            popt, pcov = optimize.curve_fit(f, x, y)
+            x_fit = plb.linspace(x[0], x[-1], 100)
+            y_fit = f(x_fit, *popt)
+            plt.plot(x_fit, y_fit, lw=4, color="r")
+            print(popt, pcov)
+        except RuntimeError:
+            print("Failed to optimise fit")
 
 if __name__ == "__main__":
+    t_start = time.clock()
     #frames = read(r"test_cases/md.pdb")
     try:
-        export = int(sys.argv[2])
+        export = int(sys.argv[3])
     except IndexError:
         export = False
-    frames = read(sys.argv[1])
+    frames = read_xtc(sys.argv[1], sys.argv[2])
+    #frames = read(sys.argv[1])
     np.set_printoptions(precision=3, suppress=True)
-    dists = calc_dists(frames, export=export)[1]
-    angles = calc_angles(frames, export=export)[1]
+    #dists = calc_dists(frames, export=export)[1]
+    #angles = calc_angles(frames, export=export)[1]
     #print("Average bond lengths")
     #for bond, dist in zip(bond_pairs, dists):
         #print("{0}-{1:3}: {2:4.3f}".format(bond[0], bond[1], dist))
@@ -408,9 +469,10 @@ if __name__ == "__main__":
     #for bond, angle in zip(bond_triples, angles):
         #print("{0}-{1}-{2:3}: {3:5.2f}".format(bond[0], bond[1], bond[2], angle))
     cg_frames = map_cg(frames)
-    cg_all_dists, cg_dists = calc_dists(cg_frames, cg_bond_pairs, export=False)
-    cg_all_angles, cg_angles = calc_angles(cg_frames, cg_bond_triples, export=False)
-    cg_all_dihedrals, cg_dihedrals = calc_dihedrals(cg_frames, cg_bond_quads, export=False)
+    cg_all_dists, cg_dists = calc_dists(cg_frames, cg_bond_pairs, export=export)
+    cg_all_angles, cg_angles = calc_angles(cg_frames, cg_bond_triples, export=export)
+    cg_all_dihedrals, cg_dihedrals = calc_dihedrals(cg_frames, cg_bond_quads, export=export)
+    cg_dipoles = calc_dipoles(cg_frames, frames, export)
     #print("Average cg bond lengths")
     #for bond, dist in zip(cg_bond_pairs, cg_dists):
         #print("{0}-{1:3}: {2:4.3f}".format(bond[0], bond[1], dist))
@@ -420,4 +482,6 @@ if __name__ == "__main__":
     graph_output(cg_all_dists, cg_bond_pairs)
     graph_output(cg_all_angles, cg_bond_triples)
     graph_output(cg_all_dihedrals, cg_bond_quads)
-    plt.show()
+    t_end = time.clock()
+    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
+    #plt.show()
