@@ -117,6 +117,19 @@ class Frame:
         vec2 = vec2 / np.linalg.norm(vec2)
         angle = np.arccos(np.dot(vec1, vec2))
         return 180 - (angle * 180 / np.pi)
+    
+    def angle_norm_bisect(self, num1, num2, num3):
+        """
+        return normal vector to plane formed by 3 atoms and their bisecting vector
+        """ 
+        vec1 = (self.atoms[num2].loc - self.atoms[num1].loc)
+        vec2 = (self.atoms[num3].loc - self.atoms[num2].loc)
+        vec1 = vec1 / np.linalg.norm(vec1)
+        vec2 = vec2 / np.linalg.norm(vec2)
+        normal = np.cross(vec1, vec2)
+        bisec = (vec1 + vec2) / 2.
+        return normal, bisec
+        
 
     def show_atoms(self, start=0, end=-1):
         """
@@ -399,6 +412,22 @@ def map_cg(frames):
     return cg_frames
 
 
+def polar_coords(xyz, axis=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=0):
+    """
+    Convert cartesian coordinates to polar, if axes are given it will be reoriented.
+    axis points to the north pole (latitude), axis2 points to 0 on equator (longitude)
+    if mod, do angles properly within -pi, +pi
+    """
+    polar = np.zeros(3)
+    xy = xyz[0]**2 + xyz[1]**2
+    polar[0] = np.sqrt(xy + xyz[2]**2)
+    polar[1] = np.arctan2(np.sqrt(xy), xyz[2]) - axis[1]
+    polar[2] = np.arctan2(xyz[1], xyz[0]) - axis2[2]
+    if mod:
+        polar[1] = (polar[1]%2*np.pi)-np.pi
+        polar[2] = (polar[2]%2*np.pi)-np.pi
+    return polar
+
 def calc_dipoles(cg_frames, frames, export=True):
     print("Calculating dipoles")
     t_start = time.clock()
@@ -417,11 +446,14 @@ def calc_dipoles(cg_frames, frames, export=True):
                 atom1 = frames[curr_frame].atoms[sugar_atom_nums[bond[0]]]
                 atom2 = frames[curr_frame].atoms[sugar_atom_nums[bond[1]]]
                 dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
-            frame_dipoles[i] += dipole
-        dipoles.append(frame_dipoles)
+            norm, bisec = frames[curr_frame].angle_norm_bisect((i-1)%6, i, (i+1)%6)
+            frame_dipoles[i] += polar_coords(dipole, norm, bisec)
         if export:
-            f.write(frame_dipoles)
-    f.close()
+            #f.write(*frame_dipoles)
+            np.savetxt(f, frame_dipoles, delimiter=",")
+        dipoles.append(frame_dipoles)
+    if export:
+        f.close()
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return dipoles
@@ -479,9 +511,9 @@ if __name__ == "__main__":
     print_output(cg_all_dists, cg_dists, cg_bond_pairs)
     print_output(cg_all_angles, cg_angles, cg_bond_triples)
     print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
-    graph_output(cg_all_dists, cg_bond_pairs)
-    graph_output(cg_all_angles, cg_bond_triples)
-    graph_output(cg_all_dihedrals, cg_bond_quads)
+    #graph_output(cg_all_dists, cg_bond_pairs)
+    #graph_output(cg_all_angles, cg_bond_triples)
+    #graph_output(cg_all_dihedrals, cg_bond_quads)
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     #plt.show()
