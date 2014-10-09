@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-#from __future__ import print_function
 import sys
 import numpy as np
 import time
@@ -36,7 +35,6 @@ def graph_output_time(output_all, num=0):
         data = plt.plot(rearrange[num])
 
 def graph_dipole_time(dipoles_all, num=-1, part=2):
-    #rearrange = zip(*dipoles_all)
     rearrange = [[],[],[],[],[],[]]
     for frame in dipoles_all:
         for i, atom in enumerate(frame):
@@ -191,7 +189,6 @@ def auto(dists, angles, dihedrals, dipoles):
     
 
 if __name__ == "__main__":
-    #frames = read(sys.argv[1])
     f = open("bond_lengths.csv", "r")
     dists = []
     for line in f:
@@ -233,13 +230,6 @@ if __name__ == "__main__":
             pass
     f.close()
     np.set_printoptions(precision=3, suppress=True)
-    #graph_output_time(cg_all_dists, cg_bond_pairs)
-    #graph_output_time(cg_all_angles, cg_bond_triples)
-    #graph_output_time(cg_all_dihedrals, cg_bond_quads)
-    #graph_output_time(cg_all_dists, cg_bond_pairs, 3)
-    #graph_dipole_time(cg_all_dipoles, num=5, part=2)
-    #graph_dipole(cg_all_dipoles)
-    #plt.show()
     print("Ready for commands")
     while True:
         s = raw_input(">>>")
