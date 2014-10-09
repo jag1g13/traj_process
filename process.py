@@ -129,7 +129,7 @@ class Frame:
         vec2 = vec2 / np.linalg.norm(vec2)
         normal = np.cross(vec1, vec2)
         bisec = (vec1 + vec2) / 2.
-        return normal, bisec
+        return polar_coords(normal), polar_coords(bisec)
 
     def show_atoms(self, start=0, end=-1):
         """
@@ -160,43 +160,7 @@ class Frame:
         return dihedrals
 
 
-def read_xtc(grofile, xtcfile, read_solvent=False):
-    global sugar_atom_nums
-    t_start = time.clock()
-    #xtc = xdr.xdrfile_open(xtcfile, 'r')
-    #assert xtc != None, "Failed to open xtc"
-    u = AtomGroup.Universe(grofile, xtcfile)
-    sel = u.selectAtoms("not resname SOL")
-    print(sel)
-    res_name = sel.resnames()[0]
-    print(res_name)
-    print(sel.names())
-    for name in sel.names():
-        sugar_atom_nums[name] = list(sel.names()).index(name)
-    if read_solvent:
-        #reads in atoms from the sugar and all water atoms within 5 Angstroms
-        sel = u.selectAtoms("resname "+res_name+" or around 5 resname "+res_name)
-        print(sel.resnames())
-        print(sel.names())
-    frames = []
-    i = 0
-    num_frames = len(u.trajectory)
-    print(num_frames)
-    for ts in u.trajectory:
-        perc = i * 100. / num_frames
-        if(i%100 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
-            sys.stdout.flush()
-        frames.append(Frame(i))
-        for atomname, coords in zip(sel.names(), sel.get_positions(ts)):
-            frames[i].atoms.append(Atom(atomname, coords, atomic_charges[atomname]))
-        i += 1
-    t_end = time.clock()
-    print("\rRead {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
-    return frames
-
-
-def read_xtc_coarse(grofile, xtcfile, read_solvent=False, keep_atomistic=False):
+def read_xtc_coarse(grofile, xtcfile, read_solvent=False, keep_atomistic=False, selection_radius=3):
     global sugar_atom_nums
     t_start = time.clock()
     u = AtomGroup.Universe(grofile, xtcfile)
@@ -209,7 +173,7 @@ def read_xtc_coarse(grofile, xtcfile, read_solvent=False, keep_atomistic=False):
         sugar_atom_nums[name] = list(sel.names()).index(name)
     if read_solvent:
         #reads in atoms from the sugar and all water atoms within 5 Angstroms
-        sel = u.selectAtoms("resname "+res_name+" or around 5 resname "+res_name)
+        sel = u.selectAtoms("resname "+res_name+" or around "+str(selection_radius)+" resname "+res_name)
         print(sel.resnames())
         print(sel.names())
     if keep_atomistic:
@@ -264,62 +228,6 @@ def calc_measures(frames, req="length", request=bond_quads, export=True):
     print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return measures, avg
 
-def map_cg(frames):
-    global cg_atom_nums
-    print("Calculating cg sites")
-    t_start = time.clock()
-    cg_frames = []
-    for curr_frame, frame in enumerate(frames):
-        perc = curr_frame * 100. / len(frames)
-        #print("Frame {0}".format(frame.num))
-        if(curr_frame%100 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
-            sys.stdout.flush()
-        cg_frames.append(Frame(curr_frame, cg_atom_nums))
-        for i, site in enumerate(cg_sites):
-            coords = np.zeros(3)
-            charge = 0.
-            for atom in cg_map[i]:
-                coords = coords + frame.atoms[sugar_atom_nums[atom]].loc
-                charge = charge + frame.atoms[sugar_atom_nums[atom]].charge
-            coords = coords / len(cg_map[i])
-            cg_frames[curr_frame].atoms.append(Atom(site, coords, charge))
-            if curr_frame == 1:
-                cg_atom_nums[site] = i
-    t_end = time.clock()
-    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
-    return cg_frames
-
-
-def map_cg_solvent(frames):
-    global cg_atom_nums
-    print("Calculating cg sites")
-    t_start = time.clock()
-    cg_frames = []
-    for curr_frame, frame in enumerate(frames):
-        perc = curr_frame * 100. / len(frames)
-        #print("Frame {0}".format(frame.num))
-        if(curr_frame%100 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
-            sys.stdout.flush()
-        cg_frames.append(Frame(curr_frame, cg_atom_nums))
-        for i, site in enumerate(cg_sites):
-            coords = np.zeros(3)
-            charge = 0.
-            for atom in cg_map[i]:
-                coords = coords + frame.atoms[sugar_atom_nums[atom]].loc
-                charge = charge + frame.atoms[sugar_atom_nums[atom]].charge
-            coords = coords / len(cg_map[i])
-            cg_frames[curr_frame].atoms.append(Atom(site, coords, charge))
-            if curr_frame == 1:
-                cg_atom_nums[site] = i
-        for i, atom in enumerate(frame.atoms):
-            if atom.atom_type == "OW":
-                cg_frames[curr_frame].atoms.append(Atom("OW", atom.loc, 0.0))
-    t_end = time.clock()
-    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
-    #print(cg_frames[0].atoms)
-    return cg_frames
 
 def map_cg_solvent_within_loop(curr_frame, frame):
     global cg_atom_nums
@@ -339,7 +247,7 @@ def map_cg_solvent_within_loop(curr_frame, frame):
             cg_frame.atoms.append(Atom("OW", atom.loc, 0.0))
     return cg_frame
 
-def polar_coords(xyz, axis=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=0):
+def polar_coords(xyz, axis=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=True):
     """
     Convert cartesian coordinates to polar, if axes are given it will be reoriented.
     axis points to the north pole (latitude), axis2 points to 0 on equator (longitude)
@@ -351,8 +259,8 @@ def polar_coords(xyz, axis=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=0):
     polar[1] = np.arctan2(np.sqrt(xy), xyz[2]) - axis[1]
     polar[2] = np.arctan2(xyz[1], xyz[0]) - axis2[2]
     if mod:
-        polar[1] = (polar[1]%2*np.pi)-np.pi
-        polar[2] = (polar[2]%2*np.pi)-np.pi
+        polar[1] = polar[1]%(2*np.pi)
+        polar[2] = polar[2]%(2*np.pi)
     return polar
 
 def calc_dipoles(cg_frames, frames, export=True):
@@ -435,4 +343,8 @@ if __name__ == "__main__":
         export = int(sys.argv[3])
     except IndexError:
         export = False
-    export_props(grofile, xtcfile, export=export, do_dipoles=False)
+    try:
+        do_dipoles = int(sys.argv[4])
+    except IndexError:
+        do_dipoles = False
+    export_props(grofile, xtcfile, export=export, do_dipoles=do_dipoles)
