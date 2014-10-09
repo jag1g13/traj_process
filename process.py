@@ -196,7 +196,7 @@ def read_xtc(grofile, xtcfile, read_solvent=False):
     return frames
 
 
-def read_xtc_coarse(grofile, xtcfile, read_solvent=False):
+def read_xtc_coarse(grofile, xtcfile, read_solvent=False, keep_atomistic=False):
     global sugar_atom_nums
     t_start = time.clock()
     u = AtomGroup.Universe(grofile, xtcfile)
@@ -212,6 +212,8 @@ def read_xtc_coarse(grofile, xtcfile, read_solvent=False):
         sel = u.selectAtoms("resname "+res_name+" or around 5 resname "+res_name)
         print(sel.resnames())
         print(sel.names())
+    if keep_atomistic:
+        frames = []
     cg_frames = []
     i = 0
     num_frames = len(u.trajectory)
@@ -225,10 +227,15 @@ def read_xtc_coarse(grofile, xtcfile, read_solvent=False):
         for atomname, coords in zip(sel.names(), sel.get_positions(ts)):
             frame.atoms.append(Atom(atomname, coords, atomic_charges[atomname]))
         cg_frames.append(map_cg_solvent_within_loop(i, frame))
+        if keep_atomistic:
+            frames.append(frame)
         i += 1
     t_end = time.clock()
     print("\rRead {0} frames in {1}s\n".format(num_frames, (t_end - t_start)) + "-"*20)
-    return cg_frames
+    if keep_atomistic:
+        return frames, cg_frames
+    else:
+        return [], cg_frames
 
 
 def calc_measures(frames, req="length", request=bond_quads, export=True):
@@ -404,26 +411,28 @@ def graph_output(output_all, request):
         except RuntimeError:
             print("Failed to optimise fit")
 
-if __name__ == "__main__":
+
+def export_props(grofile, xtcfile, export=False, do_dipoles=False):
     t_start = time.clock()
-    try:
-        export = int(sys.argv[3])
-    except IndexError:
-        export = False
-    #frames = read_xtc(sys.argv[1], sys.argv[2], read_solvent=True)
-    cg_frames = read_xtc_coarse(sys.argv[1], sys.argv[2], read_solvent=True)
+    frames, cg_frames = read_xtc_coarse(grofile, xtcfile, read_solvent=True, keep_atomistic=do_dipoles)
     np.set_printoptions(precision=3, suppress=True)
-    #cg_frames = map_cg(frames)
-    #cg_frames = map_cg_solvent(frames)
-    #cg_all_dists, cg_dists = calc_dists(cg_frames, cg_bond_pairs, export=export)
     cg_all_dists, cg_dists = calc_measures(cg_frames, "length", cg_bond_pairs, export=export)
-    #cg_all_angles, cg_angles = calc_angles(cg_frames, cg_bond_triples, export=export)
     cg_all_angles, cg_angles = calc_measures(cg_frames, "angle", cg_bond_triples, export=export)
-    #cg_all_dihedrals, cg_dihedrals = calc_dihedrals(cg_frames, cg_bond_quads, export=export)
     cg_all_dihedrals, cg_dihedrals = calc_measures(cg_frames, "dihedral", cg_bond_quads, export=export)
-    cg_dipoles = calc_dipoles(cg_frames, frames, export)
+    if do_dipoles:
+        cg_dipoles = calc_dipoles(cg_frames, frames, export)
     print_output(cg_all_dists, cg_dists, cg_bond_pairs)
     print_output(cg_all_angles, cg_angles, cg_bond_triples)
     print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
     t_end = time.clock()
-    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
+    print("\rCalculated {0} frames in {1}s\n".format(len(cg_frames), (t_end - t_start)) + "-"*20)
+    return len(cg_frames)
+
+
+if __name__ == "__main__":
+    grofile, xtcfile = sys.argv[1], sys.argv[2]
+    try:
+        export = int(sys.argv[3])
+    except IndexError:
+        export = False
+    export_props(grofile, xtcfile, export=export, do_dipoles=False)

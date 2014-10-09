@@ -188,7 +188,8 @@ def auto(dists, angles, dihedrals, dipoles):
     plb.savefig("dipoles_time_2.pdf", bbox_inches="tight")
     
 
-if __name__ == "__main__":
+def process_all(command=""):
+    t_start = time.clock()
     f = open("bond_lengths.csv", "r")
     dists = []
     for line in f:
@@ -230,13 +231,30 @@ if __name__ == "__main__":
             pass
     f.close()
     np.set_printoptions(precision=3, suppress=True)
-    print("Ready for commands")
-    while True:
-        s = raw_input(">>>")
-        if s=="auto":
+    if command == "":
+        print("Ready for commands")
+        while True:
+            command = raw_input(">>>")
+            if command=="auto":
+                auto(dists, angles, dihedrals, dipoles)
+                break
+            if command=="help":
+                print(help_msg)
+            else:
+                eval(command)
+    else:
+        if command=="auto":
             auto(dists, angles, dihedrals, dipoles)
-            break
-        if s=="help":
-            print(help_msg)
         else:
-            eval(s)
+            eval(command)
+    t_end = time.clock()
+    print("\rCalculated {0} frames in {1}s\n".format(len(dists), (t_end - t_start)) + "-"*20)
+    return 1
+
+
+if __name__ == "__main__":
+    try:
+        command = sys.argv[1]
+    except IndexError:
+        command = ""
+    process_all(command)
