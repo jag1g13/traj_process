@@ -1,2 +1,11 @@
 test_data/*
 __pycache__/*
+/*.csv
+/*.pdf
+/*.html
+/*.pyc
+/*.so
+/*.c
+/*.kdev
+log.lammps
+profile

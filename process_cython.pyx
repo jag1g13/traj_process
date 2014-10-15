@@ -10,6 +10,7 @@ TODO
 """
 
 import sys
+cimport numpy as np
 import numpy as np
 import time
 import os.path
@@ -20,7 +21,13 @@ from scipy import optimize
 import pylab as plb
 import cProfile
 import pstats
-from math import sqrt
+from libc.math cimport sqrt
+cimport cython
+from cython.parallel import parallel
+cimport openmp
+
+DTYPE = np.double
+ctypedef np.double_t DTYPE_t
 
 sugar_atom_nums = {}
 
@@ -117,7 +124,7 @@ class Frame:
     def __repr__(self):
         return "<Frame {0} containing {1} atoms>\n{2}".format(self.num, len(self.atoms), self.title)
         
-    def bond_length(self, num1, num2):
+    def bond_length(self, int num1, int num2):
         """
         return Euclidean distance between two atoms
         """
@@ -129,14 +136,16 @@ class Frame:
         """
         return Euclidean distance between two atoms
         """
-        dist = sqrt((atom1.loc[0]-atom2.loc[0])**2 +  (atom1.loc[1]-atom2.loc[1])**2 + (atom1.loc[2]-atom2.loc[2])**2)
+        cdef double dist = sqrt((atom1.loc[0]-atom2.loc[0])**2 +  (atom1.loc[1]-atom2.loc[1])**2 + (atom1.loc[2]-atom2.loc[2])**2)
         #print("Distance between atoms {0} and {1} is {2}".format(num1, num2, dist))
         return dist
     
-    def bond_angle(self, num1, num2, num3, num4):
+    def bond_angle(self, int num1, int num2, int num3, int num4):
         """
         angle at atom2 formed by bonds: 1-2 and 2-3
         """
+        cdef np.ndarray[DTYPE_t, ndim=1] vec1, vec2
+        cdef double angle
         vec1 = (self.atoms[num2].loc - self.atoms[num1].loc)
         vec2 = (self.atoms[num4].loc - self.atoms[num3].loc)
         #vec1 = vec1 / np.linalg.norm(vec1)
@@ -146,10 +155,11 @@ class Frame:
         angle = np.arccos(np.dot(vec1, vec2))
         return 180 - (angle * 180 / np.pi)
     
-    def angle_norm_bisect(self, num1, num2, num3):
+    def angle_norm_bisect(self, int num1, int num2, int num3):
         """
         return normal vector to plane formed by 3 atoms and their bisecting vector
         """ 
+        cdef np.ndarray[DTYPE_t, ndim=1] vec1, vec2, normal, bisec
         vec1 = (self.atoms[num2].loc - self.atoms[num1].loc)
         vec2 = (self.atoms[num3].loc - self.atoms[num2].loc)
         vec1 = vec1 / np.linalg.norm(vec1)
@@ -251,6 +261,8 @@ def map_cg_solvent_within_loop(curr_frame, frame):
 
 
 def solvent_rdf(cg_frames):
+    cdef int i, origin_num
+    cdef double t_start, t_end
     print("Calculating RDFs")
     t_start = time.clock()
     rdf_frames = [[], [], [], [], [], []]
@@ -311,12 +323,14 @@ def calc_measures(frames, req="length", request=bond_quads, export=True):
     return measures, avg
 
 
-def polar_coords(xyz, axis1=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=False):
+def polar_coords(xyz, np.ndarray[DTYPE_t, ndim=1] axis1=np.array([0,0,0]), np.ndarray[DTYPE_t, ndim=1] axis2=np.array([0,0,0]), mod=False):
     """
     Convert cartesian coordinates to polar, if axes are given it will be reoriented.
     axis points to the north pole (latitude), axis2 points to 0 on equator (longitude)
     if mod, do angles properly within -pi, +pi
     """
+    cdef np.ndarray[DTYPE_t, ndim=1] polar
+    cdef double xy
     polar = np.zeros(3)
     xy = xyz[0]**2 + xyz[1]**2
     polar[0] = np.sqrt(xy + xyz[2]**2)
@@ -393,15 +407,18 @@ def export_props(grofile, xtcfile, export=False, do_dipoles=False):
     t_start = time.clock()
     frames, cg_frames = read_xtc_coarse(grofile, xtcfile, read_solvent=True, keep_atomistic=do_dipoles)
     np.set_printoptions(precision=3, suppress=True)
-    solvent_rdf(cg_frames)
-    cg_all_dists, cg_dists = calc_measures(cg_frames, "length", cg_bond_pairs, export=export)
-    cg_all_angles, cg_angles = calc_measures(cg_frames, "angle", cg_bond_triples, export=export)
-    cg_all_dihedrals, cg_dihedrals = calc_measures(cg_frames, "dihedral", cg_bond_quads, export=export)
+    with nogil, parallel():
+        if openmp.omp_get_thread_num() == 0:
+            solvent_rdf(cg_frames)
+        else:
+            cg_all_dists, cg_dists = calc_measures(cg_frames, "length", cg_bond_pairs, export=export)
+            cg_all_angles, cg_angles = calc_measures(cg_frames, "angle", cg_bond_triples, export=export)
+            cg_all_dihedrals, cg_dihedrals = calc_measures(cg_frames, "dihedral", cg_bond_quads, export=export)
     if do_dipoles:
         cg_dipoles = calc_dipoles(cg_frames, frames, export)
-    print_output(cg_all_dists, cg_dists, cg_bond_pairs)
-    print_output(cg_all_angles, cg_angles, cg_bond_triples)
-    print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
+    #print_output(cg_all_dists, cg_dists, cg_bond_pairs)
+    #print_output(cg_all_angles, cg_angles, cg_bond_triples)
+    #print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(cg_frames), (t_end - t_start)) + "-"*20)
     return len(cg_frames)
