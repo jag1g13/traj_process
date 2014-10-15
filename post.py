@@ -6,6 +6,10 @@ import os.path
 import matplotlib.pyplot as plt
 from scipy import optimize
 import pylab as plb
+from optparse import OptionParser
+import cProfile
+import pstats
+import multiprocessing
 
 #bonds between cg sites
 cg_bond_pairs = [["C1", "C2"], ["C2", "C3"], ["C3", "C4"], ["C4", "C5"],\
@@ -21,7 +25,7 @@ cg_bond_quads = [["O5", "C1", "C2", "C3"], ["C1", "C2", "C3", "C4"],\
                  ["C4", "C5", "O5", "C1"], ["C5", "O5", "C1", "C2"]]
 
 
-def graph_output_time(output_all, num=0):
+def graph_output_time(output_all, filename, num=0):
     rearrange = zip(*output_all)
     plt.figure()
     if num == 0:
@@ -33,6 +37,8 @@ def graph_output_time(output_all, num=0):
             data = plt.plot(item)
     else:
         data = plt.plot(rearrange[num])
+    plb.savefig(filename+"_time.pdf", bbox_inches="tight")
+    plt.close()
 
 def graph_dipole_time(dipoles_all, num=-1, part=2):
     rearrange = [[],[],[],[],[],[]]
@@ -49,6 +55,8 @@ def graph_dipole_time(dipoles_all, num=-1, part=2):
             data = plt.plot(item)
     else:
         data = plt.plot(rearrange[num])
+    plb.savefig("dipoles_time_"+str(part)+".pdf", bbox_inches="tight")
+    plt.close()
 
 def graph_dipole(dipoles_all, num=-1, part=2):
     rearrange = [[],[],[],[],[],[]]
@@ -76,9 +84,11 @@ def graph_dipole(dipoles_all, num=-1, part=2):
             print("G: ", popt)
         except RuntimeError:
             print("Failed to optimise fit")
+    plb.savefig("dipoles_"+str(part)+".pdf", bbox_inches="tight")
+    plt.close()
 
 
-def graph_output(output_all, print_raw=1):
+def graph_output(output_all, filename, print_raw=1):
     rearrange = zip(*output_all)
     #fig = plt.figure()
     fig, ax = plt.subplots(2,3)
@@ -105,10 +115,8 @@ def graph_output(output_all, print_raw=1):
             #plt.yticks([])
             p0 = [np.max(y), x[np.argmax(y)], 0.1]
             popt, pcov = optimize.curve_fit(gauss, x, y, p0=p0)
-            #popt[0] = np.abs(popt[0])
+            popt[2] = np.abs(popt[2])
             A, mu, sigma = popt
-            popt = A, mu, np.abs(sigma)
-            sigma = np.abs(sigma)
             x_fit = plb.linspace(x[0], x[-1], 100)
             y_fit = gauss(x_fit, *popt)
             ax1.plot(x_fit, y_fit, lw=2, color="r")
@@ -133,6 +141,8 @@ def graph_output(output_all, print_raw=1):
             print("H: ", popt)
         except RuntimeError:
             print("Failed to optimise fit")
+    plb.savefig(filename+".pdf", bbox_inches="tight")
+    plt.close()
 
 
 def boltzmann_inversion(x_fit, y_fit):
@@ -156,39 +166,22 @@ def boltzmann_inversion(x_fit, y_fit):
     
 
 def auto(dists, angles, dihedrals, dipoles):
-    print("Dists")
-    graph_output(dists)
-    plb.savefig("dists.pdf", bbox_inches="tight")
-    print("Angles")
-    graph_output(angles)
-    plb.savefig("angles.pdf", bbox_inches="tight")
-    print("Dihedrals")
-    graph_output(dihedrals)
-    plb.savefig("dihedrals.pdf", bbox_inches="tight")
-    graph_output_time(dists)
-    plb.savefig("dists_time.pdf", bbox_inches="tight")
-    graph_output_time(angles)
-    plb.savefig("angles_time.pdf", bbox_inches="tight")
-    graph_output_time(dihedrals)
-    plb.savefig("dihedrals_time.pdf", bbox_inches="tight")
-    print("Dipoles_0")
-    graph_dipole(dipoles, part=0)
-    plb.savefig("dipoles_0.pdf", bbox_inches="tight")
-    graph_dipole_time(dipoles, part=0)
-    plb.savefig("dipoles_time_0.pdf", bbox_inches="tight")
-    print("Dipoles_1")
-    graph_dipole(dipoles, part=1)
-    plb.savefig("dipoles_1.pdf", bbox_inches="tight")
-    graph_dipole_time(dipoles, part=1)
-    plb.savefig("dipoles_time_1.pdf", bbox_inches="tight")
-    print("Dipoles_2")
-    graph_dipole(dipoles, part=2)
-    plb.savefig("dipoles_2.pdf", bbox_inches="tight")
-    graph_dipole_time(dipoles, part=2)
-    plb.savefig("dipoles_time_2.pdf", bbox_inches="tight")
-    
+    pool = multiprocessing.Pool(4)
+    for i in [[dists, "dists"], [angles, "angles"], [dihedrals, "dihedrals"]]:
+        pool.apply_async(graph_output(i[0], i[1]))
+        #graph_output(i[0], i[1]))
+        pool.apply_async(graph_output_time(i[0], i[1]))
+        #graph_output_time(i[0], i[1]))
+    for i in [0,1,2]:
+        pool.apply_async(graph_dipole(dipoles, i))
+        #graph_dipole(dipoles, i))
+        pool.apply_async(graph_dipole_time(dipoles, i))
+        #graph_dipole_time(dipoles, i))
+    pool.close()
+    pool.join()
 
-def process_all(command=""):
+
+def process_all(do_auto):
     t_start = time.clock()
     f = open("bond_lengths.csv", "r")
     dists = []
@@ -231,30 +224,25 @@ def process_all(command=""):
             pass
     f.close()
     np.set_printoptions(precision=3, suppress=True)
-    if command == "":
+    if do_auto:
+        auto(dists, angles, dihedrals, dipoles)
+    else:
         print("Ready for commands")
         while True:
             command = raw_input(">>>")
-            if command=="auto":
-                auto(dists, angles, dihedrals, dipoles)
-                break
-            if command=="help":
-                print(help_msg)
-            else:
-                eval(command)
-    else:
-        if command=="auto":
-            auto(dists, angles, dihedrals, dipoles)
-        else:
             eval(command)
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(dists), (t_end - t_start)) + "-"*20)
-    return 1
 
 
 if __name__ == "__main__":
-    try:
-        command = sys.argv[1]
-    except IndexError:
-        command = ""
-    process_all(command)
+    parser = OptionParser()
+    parser.add_option("-a", "--auto",
+                      action="store_true", dest="auto", default=False,
+                      help="Plot everything automatically")
+    (options, args) = parser.parse_args()
+    #process_all(options.auto)
+    cProfile.run("process_all(options.auto)", "profile")
+    p = pstats.Stats("profile")
+    p.sort_stats('cumulative').print_stats(15)
+    #p.sort_stats('time').print_stats(15)

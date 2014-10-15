@@ -21,6 +21,7 @@ import pylab as plb
 import cProfile
 import pstats
 from math import sqrt
+from optparse import OptionParser
 
 sugar_atom_nums = {}
 
@@ -130,6 +131,8 @@ class Frame:
         return Euclidean distance between two atoms
         """
         dist = sqrt((atom1.loc[0]-atom2.loc[0])**2 +  (atom1.loc[1]-atom2.loc[1])**2 + (atom1.loc[2]-atom2.loc[2])**2)
+        #dist = sqrt(sum((atom1.loc-atom2.loc)**2))
+        #dist = np.linalg.norm(atom1.loc - atom2.loc)
         #print("Distance between atoms {0} and {1} is {2}".format(num1, num2, dist))
         return dist
     
@@ -187,7 +190,7 @@ class Frame:
         return dihedrals
 
 
-def read_xtc_coarse(grofile, xtcfile, read_solvent=False, keep_atomistic=False, selection_radius=3):
+def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0):
     global sugar_atom_nums
     t_start = time.clock()
     u = AtomGroup.Universe(grofile, xtcfile)
@@ -198,9 +201,9 @@ def read_xtc_coarse(grofile, xtcfile, read_solvent=False, keep_atomistic=False, 
     print(sel.names())
     for name in sel.names():
         sugar_atom_nums[name] = list(sel.names()).index(name)
-    if read_solvent:
-        #reads in atoms from the sugar and all water atoms within 5 Angstroms
-        sel = u.selectAtoms("resname "+res_name+" or around "+str(selection_radius)+" resname "+res_name)
+    if cutoff:
+        #if a cutoff is specified it means we want to calculate solvent RDF
+        sel = u.selectAtoms("resname "+res_name+" or around "+str(cutoff)+" resname "+res_name)
         print(sel.resnames())
         print(sel.names())
     if keep_atomistic:
@@ -250,7 +253,7 @@ def map_cg_solvent_within_loop(curr_frame, frame):
     return cg_frame
 
 
-def solvent_rdf(cg_frames):
+def solvent_rdf(cg_frames, export=False):
     print("Calculating RDFs")
     t_start = time.clock()
     rdf_frames = [[], [], [], [], [], []]
@@ -266,7 +269,8 @@ def solvent_rdf(cg_frames):
                 if far_atom.atom_type == "OW":
                     #print(origin_num, frame.atoms.index(far_atom))
                     rdf_frames[origin_num].append(frame.bond_length_atoms(origin_atom, far_atom))
-    plot_rdf(rdf_frames)
+    if export:
+        plot_rdf(rdf_frames)
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(cg_frames), (t_end - t_start)) + "-"*20)
     return rdf_frames
@@ -311,22 +315,23 @@ def calc_measures(frames, req="length", request=bond_quads, export=True):
     return measures, avg
 
 
-def polar_coords(xyz, axis1=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=False):
+def polar_coords(xyz, axis1=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=True):
     """
     Convert cartesian coordinates to polar, if axes are given it will be reoriented.
     axis points to the north pole (latitude), axis2 points to 0 on equator (longitude)
     if mod, do angles properly within -pi, +pi
     """
+    tpi = 2*np.pi
     polar = np.zeros(3)
     xy = xyz[0]**2 + xyz[1]**2
     polar[0] = np.sqrt(xy + xyz[2]**2)
     polar[1] = np.arctan2(np.sqrt(xy), xyz[2]) - axis1[1]
     polar[2] = np.arctan2(xyz[1], xyz[0]) - axis2[2]
     if axis2[1]<0:
-        polar[2] = polar[2] + np.pi/2
+        polar[2] = polar[2] + tpi
     if mod:
-        polar[1] = polar[1]%(2*np.pi)
-        polar[2] = polar[2]%(2*np.pi)
+        polar[1] = polar[1]%(tpi)
+        polar[2] = polar[2]%(tpi)
     return polar
 
 def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_bonds, sugar_atom_nums=sugar_atom_nums, adjacent=adjacent):
@@ -389,11 +394,12 @@ def graph_output(output_all, request):
             print("Failed to optimise fit")
 
 
-def export_props(grofile, xtcfile, export=False, do_dipoles=False):
+def export_props(grofile, xtcfile, export=False, do_dipoles=False, cutoff=0):
     t_start = time.clock()
-    frames, cg_frames = read_xtc_coarse(grofile, xtcfile, read_solvent=True, keep_atomistic=do_dipoles)
+    frames, cg_frames = read_xtc_coarse(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff)
     np.set_printoptions(precision=3, suppress=True)
-    solvent_rdf(cg_frames)
+    if cutoff:
+        solvent_rdf(cg_frames, export=export)
     cg_all_dists, cg_dists = calc_measures(cg_frames, "length", cg_bond_pairs, export=export)
     cg_all_angles, cg_angles = calc_measures(cg_frames, "angle", cg_bond_triples, export=export)
     cg_all_dihedrals, cg_dihedrals = calc_measures(cg_frames, "dihedral", cg_bond_quads, export=export)
@@ -408,16 +414,27 @@ def export_props(grofile, xtcfile, export=False, do_dipoles=False):
 
 
 if __name__ == "__main__":
-    grofile, xtcfile = sys.argv[1], sys.argv[2]
-    try:
-        export = int(sys.argv[3])
-    except IndexError:
-        export = False
-    try:
-        do_dipoles = int(sys.argv[4])
-    except IndexError:
-        do_dipoles = False
+    parser = OptionParser()
+    parser.add_option("-g", "--gro",
+                      action="store", type="string", dest="grofile",
+                      help="Gromacs .gro topology", metavar="FILE")
+    parser.add_option("-x", "--xtc",
+                      action="store", type="string", dest="xtcfile",
+                      help="Gromacs .xtc trajectory", metavar="FILE")
+    parser.add_option("-r", "--rdf",
+                      action="store", type="int", dest="cutoff", default=0,
+                      help="Cutoff radius for RDF calculation", metavar="INT")
+    parser.add_option("-e", "--export",
+                      action="store_true", dest="export", default=False,
+                      help="Save data to .csv files in working directory")
+    parser.add_option("-d", "--dipole",
+                      action="store_true", dest="dipoles", default=False,
+                      help="Calculate dipoles")
+    (options, args) = parser.parse_args()
+    if not options.grofile or not options.xtcfile:
+        print("Must provide .gro and .xtc files to run")
+        sys.exit(1)
     #export_props(grofile, xtcfile, export=export, do_dipoles=do_dipoles)
-    cProfile.run("export_props(grofile, xtcfile, export=export, do_dipoles=do_dipoles)", "profile")
+    cProfile.run("export_props(options.grofile, options.xtcfile, export=options.export, do_dipoles=options.dipoles, cutoff=options.cutoff)", "profile")
     p = pstats.Stats("profile")
     p.sort_stats('cumulative').print_stats(15)
