@@ -10,6 +10,10 @@ from optparse import OptionParser
 import cProfile
 import pstats
 import multiprocessing
+import pyradi.ryplot as ryplot
+from matplotlib import cm
+
+
 
 #bonds between cg sites
 cg_bond_pairs = [["C1", "C2"], ["C2", "C3"], ["C3", "C4"], ["C4", "C5"],\
@@ -26,7 +30,7 @@ cg_bond_quads = [["O5", "C1", "C2", "C3"], ["C1", "C2", "C3", "C4"],\
 
 
 def graph_output_time(output_all, filename, num=0):
-    rearrange = zip(*output_all)
+    rearrange = zip(*output_all[::100])
     plt.figure()
     if num == 0:
         for i, item in enumerate(rearrange):
@@ -40,19 +44,65 @@ def graph_output_time(output_all, filename, num=0):
     plb.savefig(filename+"_time.pdf", bbox_inches="tight")
     plt.close()
 
+
+def graph_dipole_time_3d(dipoles_all, num=-1):
+    r = [[], [], [], [], [], []]
+    theta = [[],[],[],[],[],[]]
+    phi = [[],[],[],[],[],[]]
+    for frame in dipoles_all[::100]:
+        for i, atom in enumerate(frame):
+            r[i].append(atom[0])
+            theta[i].append(atom[1])
+            phi[i].append(atom[2])
+    #create the wireframe for the sphere
+    u = np.linspace(0, np.pi, 18)
+    v = np.linspace(0, 2 * np.pi, 18)
+    x = np.outer(np.sin(u), np.sin(v))
+    y = np.outer(np.sin(u), np.cos(v))
+    z = np.outer(np.cos(u), np.ones_like(v))
+    for i in xrange(len(theta)):
+        #avg_r = np.mean(r[i])
+        avg_r = 1
+        #create normal vectors using the pairs of angles in a transformation 
+        xs = r[i] * np.cos(phi[i]) * np.cos(theta[i])
+        ys = r[i] * np.cos(phi[i]) * np.sin(theta[i])
+        zs = r[i] * np.sin(phi[i])
+        azim = 45 # view angle
+        elev = 45 # view angle
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.azim = azim
+        ax.elev = elev
+        ax.plot_wireframe(avg_r*x, avg_r*y, avg_r*z, color="y")
+        ax.scatter(xs, ys, zs)
+        max_range = np.array([xs.max()-xs.min(), ys.max()-ys.min(), zs.max()-zs.min()]).max() / 2.0
+        mean_x = xs.mean()
+        mean_y = ys.mean()
+        mean_z = zs.mean()
+        ax.set_xlim(mean_x - max_range, mean_x + max_range)
+        ax.set_ylim(mean_y - max_range, mean_y + max_range)
+        ax.set_zlim(mean_z - max_range, mean_z + max_range)
+        plb.savefig("dipoles_time_3d_"+str(i)+".pdf", bbox_inches="tight")
+    plt.show()
+    plt.close()
+
+
 def graph_dipole_time(dipoles_all, num=-1, part=2):
     rearrange = [[],[],[],[],[],[]]
-    for frame in dipoles_all:
+    mag = [[], [], [], [], [], []]
+    #col = range(len(dipoles_all)/100)
+    for frame in dipoles_all[::100]:
         for i, atom in enumerate(frame):
             rearrange[i].append(atom[part])
+            mag[i].append(atom[0])
     plt.figure()
     if num == -1:
         for i, item in enumerate(rearrange):
             #locs, labels = plt.xticks()
-            plt.xticks([])
             #plt.setp(labels, rotation=90)
-            plt.subplot(2,3,i+1)
-            data = plt.plot(item)
+            plt.subplot(2,3,i+1, polar=True)
+            #data = plt.plot(item)
+            data = plt.scatter(item, mag[i])
     else:
         data = plt.plot(rearrange[num])
     plb.savefig("dipoles_time_"+str(part)+".pdf", bbox_inches="tight")
@@ -181,23 +231,25 @@ def boltzmann_inversion(x_fit, y_fit):
     return
     
 
-def auto(dists, angles, dihedrals, dipoles):
+def auto(dists, angles, dihedrals, dipoles, only_dipoles):
     #pool = multiprocessing.Pool(4)
-    for i in [[dists, "dists"], [angles, "angles"], [dihedrals, "dihedrals"]]:
-        #pool.apply_async(graph_output(i[0], i[1]))
-        graph_output(i[0], i[1])
-        #pool.apply_async(graph_output_time(i[0], i[1]))
-        graph_output_time(i[0], i[1])
-    for i in [0,1,2]:
-        #pool.apply_async(graph_dipole(dipoles, part=i))
-        graph_dipole(dipoles, part=i)
-        #pool.apply_async(graph_dipole_time(dipoles, part=i))
-        graph_dipole_time(dipoles, part=i)
+    if not only_dipoles:
+        for i in [[dists, "dists"], [angles, "angles"], [dihedrals, "dihedrals"]]:
+            #pool.apply_async(graph_output(i[0], i[1]))
+            graph_output(i[0], i[1])
+            #pool.apply_async(graph_output_time(i[0], i[1]))
+            graph_output_time(i[0], i[1])
+        for i in [0,1,2]:
+            #pool.apply_async(graph_dipole(dipoles, part=i))
+            graph_dipole(dipoles, part=i)
+            #pool.apply_async(graph_dipole_time(dipoles, part=i))
+            graph_dipole_time(dipoles, part=i)
+    graph_dipole_time_3d(dipoles)
     #pool.close()
     #pool.join()
 
 
-def process_all(do_auto):
+def process_all(do_auto, only_dipoles):
     t_start = time.clock()
     f = open("bond_lengths.csv", "r")
     dists = []
@@ -241,7 +293,7 @@ def process_all(do_auto):
     f.close()
     np.set_printoptions(precision=3, suppress=True)
     if do_auto:
-        auto(dists, angles, dihedrals, dipoles)
+        auto(dists, angles, dihedrals, dipoles, only_dipoles)
     else:
         print("Ready for commands")
         while True:
@@ -257,13 +309,16 @@ if __name__ == "__main__":
     parser.add_option("-a", "--auto",
                       action="store_true", dest="auto", default=False,
                       help="Plot everything automatically")
+    parser.add_option("-d", "--dipoles",
+                      action="store_true", dest="only_dipoles", default=False,
+                      help="Automatically do only dipoles")
     parser.add_option("-e", "--export",
                       action="store_true", dest="export", default=False,
                       help="Save fitting parameters")
     (options, args) = parser.parse_args()
-    #process_all(options.auto)
     export = options.export
-    cProfile.run("process_all(options.auto)", "profile")
-    p = pstats.Stats("profile")
-    p.sort_stats('cumulative').print_stats(15)
+    process_all(options.auto, options.only_dipoles)
+    #cProfile.run("process_all(options.auto, options.only_dipoles)", "profile")
+    #p = pstats.Stats("profile")
+    #p.sort_stats('cumulative').print_stats(15)
     #p.sort_stats('time').print_stats(15)
