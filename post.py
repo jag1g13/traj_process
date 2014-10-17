@@ -59,6 +59,9 @@ def graph_dipole_time(dipoles_all, num=-1, part=2):
     plt.close()
 
 def graph_dipole(dipoles_all, num=-1, part=2):
+    global export
+    if export:
+        f = open("dipoles_"+str(part)+"_fit.csv", "a")
     rearrange = [[],[],[],[],[],[]]
     for frame in dipoles_all:
         for i, atom in enumerate(frame):
@@ -82,13 +85,20 @@ def graph_dipole(dipoles_all, num=-1, part=2):
             y_fit = gauss(x_fit, *popt)
             plt.plot(x_fit, y_fit, lw=4, color="r")
             print("G: ", popt)
+            if export:
+                np.savetxt(f, popt, delimiter=",")
         except RuntimeError:
             print("Failed to optimise fit")
     plb.savefig("dipoles_"+str(part)+".pdf", bbox_inches="tight")
     plt.close()
+    if export:
+        f.close()
 
 
 def graph_output(output_all, filename, print_raw=1):
+    global export
+    if export:
+        f = open(filename+"_fit.csv", "a")
     rearrange = zip(*output_all)
     #fig = plt.figure()
     fig, ax = plt.subplots(2,3)
@@ -121,6 +131,8 @@ def graph_output(output_all, filename, print_raw=1):
             y_fit = gauss(x_fit, *popt)
             ax1.plot(x_fit, y_fit, lw=2, color="r")
             print("G: ", popt)
+            if export:
+                np.savetxt(f, popt, delimiter=",")
             #start doing boltzmann inversion
             if(A<0 or sigma<0):
                 print("AAAAARGH!!!!!!")
@@ -139,10 +151,14 @@ def graph_output(output_all, filename, print_raw=1):
             ax2 = ax1.twinx()
             ax2.plot(x_fit, y_inv_fit, lw=2, color="y")
             print("H: ", popt)
+            if export:
+                np.savetxt(f, popt, delimiter=",")
         except RuntimeError:
             print("Failed to optimise fit")
     plb.savefig(filename+".pdf", bbox_inches="tight")
     plt.close()
+    if export:
+        f.close()
 
 
 def boltzmann_inversion(x_fit, y_fit):
@@ -166,19 +182,19 @@ def boltzmann_inversion(x_fit, y_fit):
     
 
 def auto(dists, angles, dihedrals, dipoles):
-    pool = multiprocessing.Pool(4)
+    #pool = multiprocessing.Pool(4)
     for i in [[dists, "dists"], [angles, "angles"], [dihedrals, "dihedrals"]]:
-        pool.apply_async(graph_output(i[0], i[1]))
-        #graph_output(i[0], i[1]))
-        pool.apply_async(graph_output_time(i[0], i[1]))
-        #graph_output_time(i[0], i[1]))
+        #pool.apply_async(graph_output(i[0], i[1]))
+        graph_output(i[0], i[1])
+        #pool.apply_async(graph_output_time(i[0], i[1]))
+        graph_output_time(i[0], i[1])
     for i in [0,1,2]:
-        pool.apply_async(graph_dipole(dipoles, i))
-        #graph_dipole(dipoles, i))
-        pool.apply_async(graph_dipole_time(dipoles, i))
-        #graph_dipole_time(dipoles, i))
-    pool.close()
-    pool.join()
+        #pool.apply_async(graph_dipole(dipoles, part=i))
+        graph_dipole(dipoles, part=i)
+        #pool.apply_async(graph_dipole_time(dipoles, part=i))
+        graph_dipole_time(dipoles, part=i)
+    #pool.close()
+    #pool.join()
 
 
 def process_all(do_auto):
@@ -236,12 +252,17 @@ def process_all(do_auto):
 
 
 if __name__ == "__main__":
+    global export
     parser = OptionParser()
     parser.add_option("-a", "--auto",
                       action="store_true", dest="auto", default=False,
                       help="Plot everything automatically")
+    parser.add_option("-e", "--export",
+                      action="store_true", dest="export", default=False,
+                      help="Save fitting parameters")
     (options, args) = parser.parse_args()
     #process_all(options.auto)
+    export = options.export
     cProfile.run("process_all(options.auto)", "profile")
     p = pstats.Stats("profile")
     p.sort_stats('cumulative').print_stats(15)
