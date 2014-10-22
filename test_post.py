@@ -5,11 +5,14 @@ from glob import glob
 
 def test_post_general():
     res = process.export_props("test_data/npt.gro", "test_data/npt.xtc", export=True, do_dipoles=True)
-    assert post.process_all("auto") == 1
+    res2 = post.process_all("auto")
     print("cleaning")
     print(glob("*.csv"))
     for f in glob("*.csv"):
-        os.remove(f)
+        #os.remove(f)
+        pass
     print(glob("*.pdf"))
     for f in glob("*.pdf"):
-        os.remove(f)
+        #os.remove(f)
+        pass
+    assert res2 == 1

@@ -9,10 +9,10 @@ import pylab as plb
 from optparse import OptionParser
 import cProfile
 import pstats
-import multiprocessing
+#import multiprocessing
 import pyradi.ryplot as ryplot
 from matplotlib import cm
-
+import rpy2.robjects as robjects
 
 
 #bonds between cg sites
@@ -45,11 +45,11 @@ def graph_output_time(output_all, filename, num=0):
     plt.close()
 
 
-def graph_dipole_time_3d(dipoles_all, num=-1):
+def graph_dipole_3d(dipoles_all, num=-1):
     r = [[], [], [], [], [], []]
     theta = [[],[],[],[],[],[]]
     phi = [[],[],[],[],[],[]]
-    for frame in dipoles_all[::100]:
+    for frame in dipoles_all[::len(dipoles_all)/200]:
         for i, atom in enumerate(frame):
             r[i].append(atom[0])
             theta[i].append(atom[1])
@@ -82,16 +82,16 @@ def graph_dipole_time_3d(dipoles_all, num=-1):
         ax.set_xlim(mean_x - max_range, mean_x + max_range)
         ax.set_ylim(mean_y - max_range, mean_y + max_range)
         ax.set_zlim(mean_z - max_range, mean_z + max_range)
-        plb.savefig("dipoles_time_3d_"+str(i)+".pdf", bbox_inches="tight")
-    plt.show()
+        plb.savefig("dipoles_3d_"+str(i)+".pdf", bbox_inches="tight")
+    #plt.show()
     plt.close()
 
 
-def graph_dipole_time(dipoles_all, num=-1, part=2):
+def graph_dipole_polar(dipoles_all, num=-1, part=2):
     rearrange = [[],[],[],[],[],[]]
     mag = [[], [], [], [], [], []]
-    #col = range(len(dipoles_all)/100)
-    for frame in dipoles_all[::100]:
+    #for frame in dipoles_all:
+    for frame in dipoles_all[::len(dipoles_all)/200]:
         for i, atom in enumerate(frame):
             rearrange[i].append(atom[part])
             mag[i].append(atom[0])
@@ -105,11 +105,32 @@ def graph_dipole_time(dipoles_all, num=-1, part=2):
             data = plt.scatter(item, mag[i])
     else:
         data = plt.plot(rearrange[num])
+    plb.savefig("dipoles_polar_"+str(part)+".pdf", bbox_inches="tight")
+    plt.close()
+
+def graph_dipole_time(dipoles_all, num=-1, part=2):
+    rearrange = [[],[],[],[],[],[]]
+    mag = [[], [], [], [], [], []]
+    #for frame in dipoles_all:
+    for frame in dipoles_all[::len(dipoles_all)/100]:
+        for i, atom in enumerate(frame):
+            rearrange[i].append(atom[part])
+            mag[i].append(atom[0])
+    plt.figure()
+    if num == -1:
+        for i, item in enumerate(rearrange):
+            #locs, labels = plt.xticks()
+            #plt.setp(labels, rotation=90)
+            plt.subplot(2,3,i+1)
+            data = plt.plot(item)
+            #data = plt.scatter(item, mag[i])
+    else:
+        data = plt.plot(rearrange[num])
     plb.savefig("dipoles_time_"+str(part)+".pdf", bbox_inches="tight")
     plt.close()
 
-def graph_dipole(dipoles_all, num=-1, part=2):
-    global export
+
+def graph_dipole(dipoles_all, num=-1, part=2, export=True):
     if export:
         f = open("dipoles_"+str(part)+"_fit.csv", "a")
     rearrange = [[],[],[],[],[],[]]
@@ -145,8 +166,7 @@ def graph_dipole(dipoles_all, num=-1, part=2):
         f.close()
 
 
-def graph_output(output_all, filename, print_raw=1):
-    global export
+def graph_output(output_all, filename, print_raw=1, export=True):
     if export:
         f = open(filename+"_fit.csv", "a")
     rearrange = zip(*output_all)
@@ -156,12 +176,6 @@ def graph_output(output_all, filename, print_raw=1):
     for i, item in enumerate(rearrange):
         ax1 = plt.subplot(2,3, i+1)
         data = ax1.hist(item, bins=100, normed=1)
-        def gauss(x, *p):
-            A, mu, sigma = p
-            return A*np.exp(-(x-mu)**2/(2.*sigma**2))
-        def harmonic(x, *p):
-            a, b, c = p
-            return a * (x-b)*(x-b) + c
         k_B = 1.3806e-23
         T = 300
         x = [0.5*(data[1][j] + data[1][j+1]) for j in xrange(len(data[1])-1)]
@@ -169,6 +183,12 @@ def graph_output(output_all, filename, print_raw=1):
         if not print_raw:
             plt.cla()
         try:
+            def gauss(x, *p):
+                A, mu, sigma = p
+                return A*np.exp(-(x-mu)**2/(2.*sigma**2))
+            def harmonic(x, *p):
+                a, b, c = p
+                return a * (x-b)*(x-b) + c
             locs, labels = plt.xticks()
             plt.setp(labels, rotation=90)
             #ax1.xticks(x, labels, rotation=90)
@@ -177,6 +197,7 @@ def graph_output(output_all, filename, print_raw=1):
             popt, pcov = optimize.curve_fit(gauss, x, y, p0=p0)
             popt[2] = np.abs(popt[2])
             A, mu, sigma = popt
+            print(A, mu, sigma)
             x_fit = plb.linspace(x[0], x[-1], 100)
             y_fit = gauss(x_fit, *popt)
             ax1.plot(x_fit, y_fit, lw=2, color="r")
@@ -184,13 +205,18 @@ def graph_output(output_all, filename, print_raw=1):
             if export:
                 np.savetxt(f, popt, delimiter=",")
             #start doing boltzmann inversion
-            if(A<0 or sigma<0):
+            if(A<=0 or sigma<=0):
                 print("AAAAARGH!!!!!!")
+                raise FloatingPointError
+            R = 8.314
+            T = 300
+            #g_i = R * T * (A / (sigma*np.sqrt(np.pi/2))) * np.exp(-2 * (x_fit - mu)*(x_fit - mu) / (sigma*sigma))
             g_i = (A / (sigma*np.sqrt(np.pi/2))) * np.exp(-2 * (x_fit - mu)*(x_fit - mu) / (sigma*sigma))
             #print(y_fit)
             #print(g_i)
             #y_inv = -k_B * T * np.log(g_i)
-            y_inv = np.log(g_i)
+            #np.seterr(all='raise')
+            y_inv = R * T * np.log(g_i)
             #print(y_inv)
             p0 = [-1, x_fit[np.argmax(y_inv)], np.max(y_inv)]
             popt, pcov = optimize.curve_fit(harmonic, x_fit, y_inv, p0=p0)
@@ -203,8 +229,8 @@ def graph_output(output_all, filename, print_raw=1):
             print("H: ", popt)
             if export:
                 np.savetxt(f, popt, delimiter=",")
-        except RuntimeError:
-            print("Failed to optimise fit")
+        except RuntimeError, FloatingPointError:
+            print("Failed to optimise fit or perform inversion")
     plb.savefig(filename+".pdf", bbox_inches="tight")
     plt.close()
     if export:
@@ -216,8 +242,10 @@ def boltzmann_inversion(x_fit, y_fit):
     do a boltzmann inversion on the fitted gaussian to obtain a harmonic potential
     """
     k_B = 1.3806e-23
+    R = 8.314
     T = 300
-    y_inv = -k_B * T * np.log(y_fit / (x_fit*x_fit))
+    #y_inv = -k_B * T * np.log(y_fit / (x_fit*x_fit)) #this gives per molecule values and is so small it doesn't print
+    y_inv = -R * T * np.log(y_fit / (x_fit*x_fit))
     plt.plot(x_fit, y_inv, lw=2, color="r")
     def harmonic(x, *p):
         a, b = p
@@ -229,27 +257,37 @@ def boltzmann_inversion(x_fit, y_fit):
     #plb.savefig("dists_inv.pdf", bbox_inches="tight")
     plt.show()
     return
-    
+
+def dipole_correlation(dipoles):
+    r = robjects.r
+    #make 3d array with slot for each
+    rearrange = [[], [], []]
+    rearrange[0] = [[dipole[0] for dipole in frame] for frame in dipoles]
+    rearrange[1] = [[dipole[1] for dipole in frame] for frame in dipoles]
+    rearrange[2] = [[dipole[2] for dipole in frame] for frame in dipoles]
 
 def auto(dists, angles, dihedrals, dipoles, only_dipoles):
     #pool = multiprocessing.Pool(4)
     if not only_dipoles:
         for i in [[dists, "dists"], [angles, "angles"], [dihedrals, "dihedrals"]]:
             #pool.apply_async(graph_output(i[0], i[1]))
+            print(i[1])
             graph_output(i[0], i[1])
             #pool.apply_async(graph_output_time(i[0], i[1]))
             graph_output_time(i[0], i[1])
         for i in [0,1,2]:
+            print("dipoles_"+str(i))
             #pool.apply_async(graph_dipole(dipoles, part=i))
             graph_dipole(dipoles, part=i)
-            #pool.apply_async(graph_dipole_time(dipoles, part=i))
+            #pool.apply_async(graph_dipole_polar(dipoles, part=i))
+            graph_dipole_polar(dipoles, part=i)
             graph_dipole_time(dipoles, part=i)
-    graph_dipole_time_3d(dipoles)
+    graph_dipole_3d(dipoles)
     #pool.close()
     #pool.join()
 
 
-def process_all(do_auto, only_dipoles):
+def process_all(do_auto, only_dipoles=False):
     t_start = time.clock()
     f = open("bond_lengths.csv", "r")
     dists = []
@@ -313,7 +351,7 @@ if __name__ == "__main__":
                       action="store_true", dest="only_dipoles", default=False,
                       help="Automatically do only dipoles")
     parser.add_option("-e", "--export",
-                      action="store_true", dest="export", default=False,
+                      action="store_true", dest="export", default=True,
                       help="Save fitting parameters")
     (options, args) = parser.parse_args()
     export = options.export

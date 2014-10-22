@@ -87,7 +87,7 @@ cg_bond_quads = [["O5", "C1", "C2", "C3"], ["C1", "C2", "C3", "C4"],\
 
 #adjacent sites, really just a remapped version of cg_bond_pairs
 adjacent = {"C1": ["O5", "C2"], "C2": ["C1", "C3"], "C3": ["C2", "C4"],\
-            "C4": ["C3", "C5"], "C5": ["C4", "O5"], "O5": ["C5", "O1"]}
+            "C4": ["C3", "C5"], "C5": ["C4", "O5"], "O5": ["C5", "C1"]}
 
 #bonds within a cg site
 cg_internal_bonds = {"C1": [["C1", "O1"], ["O1", "HO1"]],\
@@ -98,13 +98,15 @@ cg_internal_bonds = {"C1": [["C1", "O1"], ["O1", "HO1"]],\
                      "O5": [["O5", "O5"]]}
 
 class Atom:
-    def __init__(self, atom_type, loc, charge):
+    def __init__(self, atom_type, loc, charge, mass=1):
         self.atom_type = atom_type
         self.loc = loc
         self.charge = charge
+        self.mass = mass
+        self.neighbours = []
 
     def __repr__(self):
-        return "<Atom {0} charge={1} @ {2}, {3}, {4}>".format(self.atom_type, self.charge, *self.loc)
+        return "<Atom {0} charge={1}, mass={2} @ {3}, {4}, {5}>".format(self.atom_type, self.charge, self.mass, *self.loc)
 
 class Frame:
     def __init__(self, num, atom_nums=sugar_atom_nums):
@@ -169,7 +171,7 @@ class Frame:
         if end == -1:
             end = len(self.atoms)
         for i in xrange(start, end):
-            print(self.atoms[i].atom_type, self.atoms[i].loc)
+            print(self.atoms[i])
 
     def get_bond_lens(self, request=bond_pairs):
         dists = np.zeros(len(request))
@@ -190,7 +192,7 @@ class Frame:
         return dihedrals
 
 
-def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0):
+def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=False):
     global sugar_atom_nums
     t_start = time.clock()
     u = AtomGroup.Universe(grofile, xtcfile)
@@ -218,8 +220,10 @@ def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0):
             sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
             sys.stdout.flush()
         frame = Frame(i)
-        for atomname, coords in zip(sel.names(), sel.get_positions(ts)):
-            frame.atoms.append(Atom(atomname, coords, atomic_charges[atomname]))
+        for atomname, coords, mass in zip(sel.names(), sel.get_positions(ts), sel.masses()):
+            if not cm_map:
+                mass = 1
+            frame.atoms.append(Atom(atomname, coords, atomic_charges[atomname], mass=mass))
         cg_frames.append(map_cg_solvent_within_loop(i, frame))
         if keep_atomistic:
             frames.append(frame)
@@ -228,6 +232,7 @@ def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0):
     print("\rRead {0} frames in {1}s\n".format(num_frames, (t_end - t_start)) + "-"*20)
     #for atom in cg_frames[0].atoms:
         #print(atom)
+    frames[0].show_atoms()
     if keep_atomistic:
         return frames, cg_frames
     else:
@@ -239,11 +244,16 @@ def map_cg_solvent_within_loop(curr_frame, frame):
     cg_frame = Frame(curr_frame, cg_atom_nums)
     for i, site in enumerate(cg_sites):
         coords = np.zeros(3)
+        tot_mass = 0.
         charge = 0.
         for atom in cg_map[i]:
-            coords = coords + frame.atoms[sugar_atom_nums[atom]].loc
+            #coords = coords + frame.atoms[sugar_atom_nums[atom]].loc #for gc mapping
+            mass = frame.atoms[sugar_atom_nums[atom]].mass
+            tot_mass = tot_mass + mass
+            coords = coords + mass*frame.atoms[sugar_atom_nums[atom]].loc #for cm mapping
             charge = charge + frame.atoms[sugar_atom_nums[atom]].charge
-        coords = coords / len(cg_map[i])
+        #coords = coords / len(cg_map[i])
+        coords = coords / tot_mass #number of atoms cancels out
         cg_frame.atoms.append(Atom(site, coords, charge))
         if curr_frame == 0:
             cg_atom_nums[site] = i
@@ -356,8 +366,8 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
                 atom2 = frames[curr_frame].atoms[sugar_atom_nums[bond[1]]]
                 dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
             #norm, bisec = frames[curr_frame].angle_norm_bisect((i-1)%6, i, (i+1)%6)
-            norm, bisec = cg_frame.angle_norm_bisect((i-1)%6, i, (i+1)%6)
-            #norm, bisec = cg_frame.angle_norm_bisect(sugar_atom_nums[adjacent[site.atom_type][0]], i, sugar_atom_nums[adjacent[site.atom_type][1]])
+            #norm, bisec = cg_frame.angle_norm_bisect((i-1)%6, i, (i+1)%6)
+            norm, bisec = cg_frame.angle_norm_bisect(cg_atom_nums[adjacent[site.atom_type][0]], i, cg_atom_nums[adjacent[site.atom_type][1]])
             #this is getting rediculous now
             frame_dipoles[i] += polar_coords(dipole, norm, bisec)
         if export:
@@ -394,9 +404,9 @@ def graph_output(output_all, request):
             print("Failed to optimise fit")
 
 
-def export_props(grofile, xtcfile, export=False, do_dipoles=False, cutoff=0):
+def export_props(grofile, xtcfile, export=False, do_dipoles=False, cutoff=0, cm_map=False):
     t_start = time.clock()
-    frames, cg_frames = read_xtc_coarse(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff)
+    frames, cg_frames = read_xtc_coarse(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff, cm_map=cm_map)
     np.set_printoptions(precision=3, suppress=True)
     if cutoff:
         solvent_rdf(cg_frames, export=export)
@@ -430,11 +440,15 @@ if __name__ == "__main__":
     parser.add_option("-d", "--dipole",
                       action="store_true", dest="dipoles", default=False,
                       help="Calculate dipoles")
+    parser.add_option("-m", "--mass",
+                      action="store_true", dest="cm_map", default=False,
+                      help="Use centre of mass mapping")
     (options, args) = parser.parse_args()
     if not options.grofile or not options.xtcfile:
         print("Must provide .gro and .xtc files to run")
         sys.exit(1)
     #export_props(grofile, xtcfile, export=export, do_dipoles=do_dipoles)
-    cProfile.run("export_props(options.grofile, options.xtcfile, export=options.export, do_dipoles=options.dipoles, cutoff=options.cutoff)", "profile")
+    cProfile.run("export_props(options.grofile, options.xtcfile, export=options.export, do_dipoles=options.dipoles, cutoff=options.cutoff, cm_map=options.cm_map)", "profile")
     p = pstats.Stats("profile")
-    p.sort_stats('cumulative').print_stats(15)
+    #p.sort_stats('cumulative').print_stats(25)
+    p.sort_stats('time').print_stats(25)
