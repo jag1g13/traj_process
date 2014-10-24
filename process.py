@@ -356,19 +356,16 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
             sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
             sys.stdout.flush()
         frame_dipoles = np.zeros((len(cg_sites),3))
-        for i, site in enumerate(cg_frame.atoms):
-            if site.atom_type == "OW":
-                continue
+        for i, site in enumerate(cg_sites):
+            #if site.atom_type == "OW":
+                #continue
             dipole = np.zeros(3)
             #print(site.atom_type)
-            for j, bond in enumerate(cg_internal_bonds[site.atom_type]):
+            for j, bond in enumerate(cg_internal_bonds[site]):
                 atom1 = frames[curr_frame].atoms[sugar_atom_nums[bond[0]]]
                 atom2 = frames[curr_frame].atoms[sugar_atom_nums[bond[1]]]
                 dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
-            #norm, bisec = frames[curr_frame].angle_norm_bisect((i-1)%6, i, (i+1)%6)
-            #norm, bisec = cg_frame.angle_norm_bisect((i-1)%6, i, (i+1)%6)
-            norm, bisec = cg_frame.angle_norm_bisect(cg_atom_nums[adjacent[site.atom_type][0]], i, cg_atom_nums[adjacent[site.atom_type][1]])
-            #this is getting rediculous now
+            norm, bisec = cg_frame.angle_norm_bisect(cg_atom_nums[adjacent[site][0]], i, cg_atom_nums[adjacent[site][1]])
             frame_dipoles[i] += polar_coords(dipole, norm, bisec)
         if export:
             np.savetxt(f, frame_dipoles, delimiter=",")

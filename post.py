@@ -45,7 +45,7 @@ def graph_output_time(output_all, filename, num=0):
     plt.close()
 
 
-def graph_dipole_3d(dipoles_all, num=-1):
+def graph_dipole_3d(dipoles_all, only_3d, num=-1):
     r = [[], [], [], [], [], []]
     theta = [[],[],[],[],[],[]]
     phi = [[],[],[],[],[],[]]
@@ -83,7 +83,8 @@ def graph_dipole_3d(dipoles_all, num=-1):
         ax.set_ylim(mean_y - max_range, mean_y + max_range)
         ax.set_zlim(mean_z - max_range, mean_z + max_range)
         plb.savefig("dipoles_3d_"+str(i)+".pdf", bbox_inches="tight")
-    #plt.show()
+    if only_3d:
+        plt.show()
     plt.close()
 
 
@@ -173,7 +174,15 @@ def graph_output(output_all, filename, print_raw=1, export=True):
     #fig = plt.figure()
     fig, ax = plt.subplots(2,3)
     fig.tight_layout()
+    #np.seterr(all='raise')
+    np.seterr(under='ignore')
     for i, item in enumerate(rearrange):
+        def gauss(x, *p):
+            A, mu, sigma = p
+            return A*np.exp(-(x-mu)**2/(2.*sigma**2))
+        def harmonic(x, *p):
+            a, b, c = p
+            return a * (x-b)*(x-b) + c
         ax1 = plt.subplot(2,3, i+1)
         data = ax1.hist(item, bins=100, normed=1)
         k_B = 1.3806e-23
@@ -183,12 +192,7 @@ def graph_output(output_all, filename, print_raw=1, export=True):
         if not print_raw:
             plt.cla()
         try:
-            def gauss(x, *p):
-                A, mu, sigma = p
-                return A*np.exp(-(x-mu)**2/(2.*sigma**2))
-            def harmonic(x, *p):
-                a, b, c = p
-                return a * (x-b)*(x-b) + c
+            print("-"*10)
             locs, labels = plt.xticks()
             plt.setp(labels, rotation=90)
             #ax1.xticks(x, labels, rotation=90)
@@ -197,7 +201,7 @@ def graph_output(output_all, filename, print_raw=1, export=True):
             popt, pcov = optimize.curve_fit(gauss, x, y, p0=p0)
             popt[2] = np.abs(popt[2])
             A, mu, sigma = popt
-            print(A, mu, sigma)
+            #print(A, mu, sigma)
             x_fit = plb.linspace(x[0], x[-1], 100)
             y_fit = gauss(x_fit, *popt)
             ax1.plot(x_fit, y_fit, lw=2, color="r")
@@ -215,7 +219,6 @@ def graph_output(output_all, filename, print_raw=1, export=True):
             #print(y_fit)
             #print(g_i)
             #y_inv = -k_B * T * np.log(g_i)
-            #np.seterr(all='raise')
             y_inv = R * T * np.log(g_i)
             #print(y_inv)
             p0 = [-1, x_fit[np.argmax(y_inv)], np.max(y_inv)]
@@ -229,7 +232,7 @@ def graph_output(output_all, filename, print_raw=1, export=True):
             print("H: ", popt)
             if export:
                 np.savetxt(f, popt, delimiter=",")
-        except RuntimeError, FloatingPointError:
+        except RuntimeError:
             print("Failed to optimise fit or perform inversion")
     plb.savefig(filename+".pdf", bbox_inches="tight")
     plt.close()
@@ -266,9 +269,9 @@ def dipole_correlation(dipoles):
     rearrange[1] = [[dipole[1] for dipole in frame] for frame in dipoles]
     rearrange[2] = [[dipole[2] for dipole in frame] for frame in dipoles]
 
-def auto(dists, angles, dihedrals, dipoles, only_dipoles):
+def auto(dists, angles, dihedrals, dipoles, only_3d):
     #pool = multiprocessing.Pool(4)
-    if not only_dipoles:
+    if not only_3d:
         for i in [[dists, "dists"], [angles, "angles"], [dihedrals, "dihedrals"]]:
             #pool.apply_async(graph_output(i[0], i[1]))
             print(i[1])
@@ -282,12 +285,12 @@ def auto(dists, angles, dihedrals, dipoles, only_dipoles):
             #pool.apply_async(graph_dipole_polar(dipoles, part=i))
             graph_dipole_polar(dipoles, part=i)
             graph_dipole_time(dipoles, part=i)
-    graph_dipole_3d(dipoles)
+    graph_dipole_3d(dipoles, only_3d)
     #pool.close()
     #pool.join()
 
 
-def process_all(do_auto, only_dipoles=False):
+def process_all(do_auto, only_3d=False):
     t_start = time.clock()
     f = open("bond_lengths.csv", "r")
     dists = []
@@ -331,7 +334,7 @@ def process_all(do_auto, only_dipoles=False):
     f.close()
     np.set_printoptions(precision=3, suppress=True)
     if do_auto:
-        auto(dists, angles, dihedrals, dipoles, only_dipoles)
+        auto(dists, angles, dihedrals, dipoles, only_3d)
     else:
         print("Ready for commands")
         while True:
@@ -348,15 +351,15 @@ if __name__ == "__main__":
                       action="store_true", dest="auto", default=False,
                       help="Plot everything automatically")
     parser.add_option("-d", "--dipoles",
-                      action="store_true", dest="only_dipoles", default=False,
-                      help="Automatically do only dipoles")
+                      action="store_true", dest="only_3d", default=False,
+                      help="Automatically do only interactive 3d dipoles")
     parser.add_option("-e", "--export",
                       action="store_true", dest="export", default=True,
                       help="Save fitting parameters")
     (options, args) = parser.parse_args()
     export = options.export
-    process_all(options.auto, options.only_dipoles)
-    #cProfile.run("process_all(options.auto, options.only_dipoles)", "profile")
+    process_all(options.auto, options.only_3d)
+    #cProfile.run("process_all(options.auto, options.only_3d)", "profile")
     #p = pstats.Stats("profile")
     #p.sort_stats('cumulative').print_stats(15)
     #p.sort_stats('time').print_stats(15)
