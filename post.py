@@ -261,6 +261,11 @@ def boltzmann_inversion(x_fit, y_fit):
     plt.show()
     return
 
+def graph_energy(energies):
+    plt.plot(energies)
+    plb.savefig("energies.pdf", bbox_inches="tight")
+    plt.close()
+
 def dipole_correlation(dipoles):
     r = robjects.r
     #make 3d array with slot for each
@@ -269,9 +274,10 @@ def dipole_correlation(dipoles):
     rearrange[1] = [[dipole[1] for dipole in frame] for frame in dipoles]
     rearrange[2] = [[dipole[2] for dipole in frame] for frame in dipoles]
 
-def auto(dists, angles, dihedrals, dipoles, only_3d):
+def auto(dists, angles, dihedrals, dipoles, energies, only_3d):
     #pool = multiprocessing.Pool(4)
     if not only_3d:
+        graph_energy(energies)
         for i in [[dists, "dists"], [angles, "angles"], [dihedrals, "dihedrals"]]:
             #pool.apply_async(graph_output(i[0], i[1]))
             print(i[1])
@@ -332,9 +338,15 @@ def process_all(do_auto, only_3d=False):
         except:
             pass
     f.close()
+    #get energies
+    f = open("energies.csv", "r")
+    energies = []
+    for line in f:
+        energies.append(float(line))
+    f.close()
     np.set_printoptions(precision=3, suppress=True)
     if do_auto:
-        auto(dists, angles, dihedrals, dipoles, only_3d)
+        auto(dists, angles, dihedrals, dipoles, energies, only_3d)
     else:
         print("Ready for commands")
         while True:

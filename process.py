@@ -23,6 +23,8 @@ import pstats
 from math import sqrt
 from optparse import OptionParser
 
+verbose = False
+
 sugar_atom_nums = {}
 
 sugar_atoms = ["C1", "O1", "HO1", "C2", "O2", "HO2",\
@@ -193,21 +195,23 @@ class Frame:
 
 
 def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=False):
-    global sugar_atom_nums
+    global sugar_atom_nums, verbose
     t_start = time.clock()
     u = AtomGroup.Universe(grofile, xtcfile)
     sel = u.selectAtoms("not resname SOL")
-    print(sel)
     res_name = sel.resnames()[0]
-    print(res_name)
-    print(sel.names())
+    if verbose:
+        print(sel)
+        print(res_name)
+        print(sel.names())
     for name in sel.names():
         sugar_atom_nums[name] = list(sel.names()).index(name)
     if cutoff:
         #if a cutoff is specified it means we want to calculate solvent RDF
         sel = u.selectAtoms("resname "+res_name+" or around "+str(cutoff)+" resname "+res_name)
-        print(sel.resnames())
-        print(sel.names())
+        if verbose:
+            print(sel.resnames())
+            print(sel.names())
     if keep_atomistic:
         frames = []
     cg_frames = []
@@ -229,10 +233,12 @@ def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=Fal
             frames.append(frame)
         i += 1
     t_end = time.clock()
-    print("\rRead {0} frames in {1}s\n".format(num_frames, (t_end - t_start)) + "-"*20)
+    print("\rRead {0} frames in {1}s".format(num_frames, (t_end - t_start)))
+    if verbose:
+        cg_frames[0].show_atoms()
+    print("-"*20)
     #for atom in cg_frames[0].atoms:
         #print(atom)
-    frames[0].show_atoms()
     if keep_atomistic:
         return frames, cg_frames
     else:
@@ -376,6 +382,48 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
     print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return dipoles
 
+def read_energy(energyfile, export=False):
+    global verbose
+    t_start = time.clock()
+    print("Reading energies")
+    try:
+        f = open(energyfile, "r")
+    except IOError:
+        print("Error reading energy file")
+        return []
+    energy_block = False
+    this_line = False
+    energies_str = []
+    for line in f.readlines():
+        #print(line.strip())
+        if this_line:
+            energies_str.append(line.split()[1])
+            this_line = False
+            energy_block = False
+        if energy_block:
+            if not this_line and line.strip()[0:7] == "Kinetic":
+                #print("It's the next line")
+                this_line = True #the next line is the one we want
+        elif line.strip()[0:8] == "Energies":
+            #print("Found energy block")
+            energy_block = True
+    f.close()
+    if export:
+        try:
+           f = open("energies.csv", "a")
+        except IOError:
+            print("Error opening energy ouput file")
+        else:
+            f.write("\n".join(energies_str))
+            f.close()
+    energies = np.array(energies_str).astype(np.float)
+    t_end = time.clock()
+    if verbose:
+        print("Average total energy is "+str(np.average(energies)))
+    print("Read {0} energies in {1}s".format(len(energies), (t_end - t_start)))
+    print("-"*20)
+    return energies
+
 def print_output(output_all, output, request):
     for name, val in zip(request, output):
         print("{0}: {1:4.3f}".format("-".join(name), val))
@@ -401,20 +449,24 @@ def graph_output(output_all, request):
             print("Failed to optimise fit")
 
 
-def export_props(grofile, xtcfile, export=False, do_dipoles=False, cutoff=0, cm_map=False):
+def export_props(grofile, xtcfile, energyfile="", export=False, do_dipoles=False, cutoff=0, cm_map=False):
+    global verbose
     t_start = time.clock()
     frames, cg_frames = read_xtc_coarse(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff, cm_map=cm_map)
     np.set_printoptions(precision=3, suppress=True)
     if cutoff:
         solvent_rdf(cg_frames, export=export)
+    if energyfile:
+        read_energy(energyfile, export=export)
     cg_all_dists, cg_dists = calc_measures(cg_frames, "length", cg_bond_pairs, export=export)
     cg_all_angles, cg_angles = calc_measures(cg_frames, "angle", cg_bond_triples, export=export)
     cg_all_dihedrals, cg_dihedrals = calc_measures(cg_frames, "dihedral", cg_bond_quads, export=export)
     if do_dipoles:
         cg_dipoles = calc_dipoles(cg_frames, frames, export)
-    print_output(cg_all_dists, cg_dists, cg_bond_pairs)
-    print_output(cg_all_angles, cg_angles, cg_bond_triples)
-    print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
+    if verbose:
+        print_output(cg_all_dists, cg_dists, cg_bond_pairs)
+        print_output(cg_all_angles, cg_angles, cg_bond_triples)
+        print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(cg_frames), (t_end - t_start)) + "-"*20)
     return len(cg_frames)
@@ -428,6 +480,9 @@ if __name__ == "__main__":
     parser.add_option("-x", "--xtc",
                       action="store", type="string", dest="xtcfile",
                       help="Gromacs .xtc trajectory", metavar="FILE")
+    parser.add_option("-E", "--energy",
+                      action="store", type="string", dest="energyfile", default="",
+                      help="Parse energies from log file", metavar="FILE")
     parser.add_option("-r", "--rdf",
                       action="store", type="int", dest="cutoff", default=0,
                       help="Cutoff radius for RDF calculation", metavar="INT")
@@ -440,12 +495,18 @@ if __name__ == "__main__":
     parser.add_option("-m", "--mass",
                       action="store_true", dest="cm_map", default=False,
                       help="Use centre of mass mapping")
+    parser.add_option("-v", "--verbose",
+                      action="store_true", dest="verbose", default=False,
+                      help="Make more verbose")
     (options, args) = parser.parse_args()
+    verbose = options.verbose
     if not options.grofile or not options.xtcfile:
         print("Must provide .gro and .xtc files to run")
         sys.exit(1)
-    #export_props(grofile, xtcfile, export=export, do_dipoles=do_dipoles)
-    cProfile.run("export_props(options.grofile, options.xtcfile, export=options.export, do_dipoles=options.dipoles, cutoff=options.cutoff, cm_map=options.cm_map)", "profile")
-    p = pstats.Stats("profile")
-    #p.sort_stats('cumulative').print_stats(25)
-    p.sort_stats('time').print_stats(25)
+    if verbose:
+        cProfile.run("export_props(options.grofile, options.xtcfile, energyfile=options.energyfile, export=options.export, do_dipoles=options.dipoles, cutoff=options.cutoff, cm_map=options.cm_map)", "profile")
+        p = pstats.Stats("profile")
+        #p.sort_stats('cumulative').print_stats(25)
+        p.sort_stats('time').print_stats(25)
+    else:
+        export_props(options.grofile, options.xtcfile, energyfile=options.energyfile, export=options.export, do_dipoles=options.dipoles, cutoff=options.cutoff, cm_map=options.cm_map)

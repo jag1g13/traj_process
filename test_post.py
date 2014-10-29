@@ -9,10 +9,8 @@ def test_post_general():
     print("cleaning")
     print(glob("*.csv"))
     for f in glob("*.csv"):
-        #os.remove(f)
-        pass
+        os.remove(f)
     print(glob("*.pdf"))
     for f in glob("*.pdf"):
-        #os.remove(f)
-        pass
+        os.remove(f)
     assert res2 == 1
