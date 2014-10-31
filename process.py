@@ -62,8 +62,8 @@ cg_sites = ["C1", "C2", "C3", "C4", "C5", "O5"]
 cg_atom_nums = {}
 
 #which atoms map to which cg site, same order as above
-#cg_map = [["C1", "O1", "HO1"], ["C2", "O2", "HO2"], ["C3", "O3", "HO3"],\
-          #["C4", "O4", "HO4"], ["C5", "C6", "O6", "HO6"], ["O5"]]
+cg_internal_map = {"C1":["C1", "O1", "HO1"], "C2":["C2", "O2", "HO2"], "C3":["C3", "O3", "HO3"],\
+                   "C4":["C4", "O4", "HO4"], "C5":["C5", "C6", "O6", "HO6"], "O5":["O5"]}
 #cg_map = [["C1", "O1"], ["C2", "O2"], ["C3", "O3"],\
           #["C4", "O4"], ["C5", "C6"], ["O5"]]
 cg_map = [["C1"], ["C2"], ["C3"],\
@@ -351,8 +351,18 @@ def polar_coords(xyz, axis1=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=True
     return polar
 
 def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_bonds, sugar_atom_nums=sugar_atom_nums, adjacent=adjacent):
+    """
+    starting to think this might be impossible
+    dipole of a charged fragment is dependent on where you measure it from
+    where should it be measured from??
+    
+    
+    should modify this to include OW dipoles
+    modify to drop frames I'm not using - optimise
+    """
     print("Calculating dipoles")
     t_start = time.clock()
+    old_dipoles = False
     if export:
         f = open("dipoles.csv", "a")
     dipoles = []
@@ -367,16 +377,36 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
                 #continue
             dipole = np.zeros(3)
             #print(site.atom_type)
-            for j, bond in enumerate(cg_internal_bonds[site]):
-                atom1 = frames[curr_frame].atoms[sugar_atom_nums[bond[0]]]
-                atom2 = frames[curr_frame].atoms[sugar_atom_nums[bond[1]]]
-                dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
+            if old_dipoles:
+                #next 4 lines measure dipole from origin - also inefficient method
+                for j, bond in enumerate(cg_internal_bonds[site]):
+                    atom1 = frames[curr_frame].atoms[sugar_atom_nums[bond[0]]]
+                    atom2 = frames[curr_frame].atoms[sugar_atom_nums[bond[1]]]
+                    dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
+            else:
+                #5 lines measure dipole from centre of charge - seems reasonable
+                for atom_name in cg_internal_map[site]:
+                    atom = frames[curr_frame].atoms[sugar_atom_nums[atom_name]]
+                    dipole += atom.loc * atom.charge #first calc from origin
+                cg_atom = cg_frame.atoms[cg_atom_nums[site]]
+                dipole -= cg_atom.loc * cg_atom.charge #then recentre it
+                #adjust this to check if it's just giving me the coords back
+                #dipole += cg_atom.loc
+            #next 4 lines measure dipole from cg_bead location - ignores charge on C
+            #cg_atom = cg_frame.atoms[cg_atom_nums[site]]
+            #for atom_name in cg_internal_map[site]:
+                #atom = frames[curr_frame].atoms[sugar_atom_nums[atom_name]]
+                #dipole += (atom.loc - cg_atom.loc) * atom.charge
             norm, bisec = cg_frame.angle_norm_bisect(cg_atom_nums[adjacent[site][0]], i, cg_atom_nums[adjacent[site][1]])
             frame_dipoles[i] += polar_coords(dipole, norm, bisec)
+            #if frame_dipoles[i][0] < 0.1:
+                #print("No dipole--why?")
         if export:
+            #f.write("Frame_"+str(curr_frame))
             np.savetxt(f, frame_dipoles, delimiter=",")
         dipoles.append(frame_dipoles)
     if export:
+        #f.write("Finished frames")
         f.close()
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)

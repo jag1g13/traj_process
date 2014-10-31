@@ -28,6 +28,10 @@ cg_bond_quads = [["O5", "C1", "C2", "C3"], ["C1", "C2", "C3", "C4"],\
                  ["C2", "C3", "C4", "C5"], ["C3", "C4", "C5", "O5"],\
                  ["C4", "C5", "O5", "C1"], ["C5", "O5", "C1", "C2"]]
 
+adjacent = {"C1": ["O5", "C2"], "C2": ["C1", "C3"], "C3": ["C2", "C4"],\
+            "C4": ["C3", "C5"], "C5": ["C4", "O5"], "O5": ["C5", "C1"]}
+
+num_to_plot = 1000
 
 def graph_output_time(output_all, filename, num=0):
     rearrange = zip(*output_all[::100])
@@ -45,15 +49,27 @@ def graph_output_time(output_all, filename, num=0):
     plt.close()
 
 
-def graph_dipole_3d(dipoles_all, only_3d, num=-1):
+def graph_dipole_3d(dipoles_all, dists, angles, only_3d, num=-1):
+    global num_to_plot
     r = [[], [], [], [], [], []]
     theta = [[],[],[],[],[],[]]
     phi = [[],[],[],[],[],[]]
-    for frame in dipoles_all[::len(dipoles_all)/200]:
+    r_atoms = [[],[],[],[],[],[]]
+    theta_atoms = [[],[],[],[],[],[]]
+    for frame in dipoles_all[::len(dipoles_all)/num_to_plot]:
         for i, atom in enumerate(frame):
             r[i].append(atom[0])
             theta[i].append(atom[1])
             phi[i].append(atom[2])
+    rearrange_dists = zip(*dists)
+    rearrange_angles = zip(*angles)
+    for i in range(len(dipoles_all[0])):
+        #r_atoms[i].append(np.average(rearrange_dists[(i-1)%6]))
+        #r_atoms[i].append(np.average(rearrange_dists[(i+1)%6]))
+        #r_atoms[i] = [1.,1.]
+        r_atoms[i] = np.average(r[i])
+        theta_tmp = np.average(rearrange_angles[i])
+        theta_atoms[i] = [-theta_tmp, theta_tmp]
     #create the wireframe for the sphere
     u = np.linspace(0, np.pi, 18)
     v = np.linspace(0, 2 * np.pi, 18)
@@ -61,8 +77,8 @@ def graph_dipole_3d(dipoles_all, only_3d, num=-1):
     y = np.outer(np.sin(u), np.cos(v))
     z = np.outer(np.cos(u), np.ones_like(v))
     for i in xrange(len(theta)):
-        #avg_r = np.mean(r[i])
-        avg_r = 1
+        avg_r = np.mean(r[i])
+        #avg_r = 1
         #create normal vectors using the pairs of angles in a transformation 
         xs = r[i] * np.cos(phi[i]) * np.cos(theta[i])
         ys = r[i] * np.cos(phi[i]) * np.sin(theta[i])
@@ -75,6 +91,11 @@ def graph_dipole_3d(dipoles_all, only_3d, num=-1):
         ax.elev = elev
         ax.plot_wireframe(avg_r*x, avg_r*y, avg_r*z, color="y")
         ax.scatter(xs, ys, zs)
+        #now plot the locations of atoms
+        xs_atom = r_atoms[i] * np.cos(theta_atoms[i])
+        ys_atom = r_atoms[i] * np.sin(theta_atoms[i])
+        zs_atom = np.zeros_like(ys_atom)
+        ax.scatter(xs_atom, ys_atom, zs_atom, color="r", s=200)
         max_range = np.array([xs.max()-xs.min(), ys.max()-ys.min(), zs.max()-zs.min()]).max() / 2.0
         mean_x = xs.mean()
         mean_y = ys.mean()
@@ -89,10 +110,11 @@ def graph_dipole_3d(dipoles_all, only_3d, num=-1):
 
 
 def graph_dipole_polar(dipoles_all, num=-1, part=2):
+    global num_to_plot
     rearrange = [[],[],[],[],[],[]]
     mag = [[], [], [], [], [], []]
     #for frame in dipoles_all:
-    for frame in dipoles_all[::len(dipoles_all)/200]:
+    for frame in dipoles_all[::len(dipoles_all)/num_to_plot]:
         for i, atom in enumerate(frame):
             rearrange[i].append(atom[part])
             mag[i].append(atom[0])
@@ -291,7 +313,7 @@ def auto(dists, angles, dihedrals, dipoles, energies, only_3d):
             #pool.apply_async(graph_dipole_polar(dipoles, part=i))
             graph_dipole_polar(dipoles, part=i)
             graph_dipole_time(dipoles, part=i)
-    graph_dipole_3d(dipoles, only_3d)
+    graph_dipole_3d(dipoles, dists, angles, only_3d)
     #pool.close()
     #pool.join()
 
