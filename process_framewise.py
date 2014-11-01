@@ -24,6 +24,7 @@ from math import sqrt
 from optparse import OptionParser
 
 verbose = False
+cm_map = False
 
 sugar_atom_nums = {}
 
@@ -244,9 +245,54 @@ def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=Fal
     else:
         return [], cg_frames
 
+def read_xtc_setup(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=False):
+    global sugar_atom_nums, verbose
+    t_start = time.clock()
+    u = AtomGroup.Universe(grofile, xtcfile)
+    sel = u.selectAtoms("not resname SOL")
+    res_name = sel.resnames()[0]
+    if verbose:
+        print(sel)
+        print(res_name)
+        print(sel.names())
+    for name in sel.names():
+        sugar_atom_nums[name] = list(sel.names()).index(name)
+    if cutoff:
+        #if a cutoff is specified it means we want to calculate solvent RDF
+        sel = u.selectAtoms("resname "+res_name+" or around "+str(cutoff)+" resname "+res_name)
+        if verbose:
+            print(sel.resnames())
+            print(sel.names())
+    num_frames = len(u.trajectory)
+    frame = Frame(0)
+    ts_init = u.trajectory[0]
+    for atomname, coords, mass in zip(sel.names(), sel.get_positions(ts_init), sel.masses()):
+        if not cm_map:
+            mass = 1
+        frame.atoms.append(Atom(atomname, coords, atomic_charges[atomname], mass=mass))
+    cg_frame = map_cg_solvent_within_loop(0, frame)
+    print(num_frames)
+    if verbose:
+        cg_frames[0].show_atoms()
+    print("Done xtc setup\n"+"-"*20)
+    return num_frames, [frame], [cg_frame], sel, u #placeholders for the frames, will be overwritten when reading in a new one
+
+def read_xtc_frame(sel, ts, frame_num, frame, cg_frame):
+    global cm_map
+    #print("Reading frame "+str(frame_num))
+    frame[0].num = frame_num
+    for i, dat in enumerate(zip(sel.names(), sel.get_positions(ts), sel.masses())):
+        atomname, coords, mass = dat[0], dat[1], dat[2]
+        if not cm_map:
+            mass = 1
+        frame[0].atoms[i] = Atom(atomname, coords, atomic_charges[atomname], mass=mass)
+    cg_frame = map_cg_solvent_within_loop(frame_num, frame[0])
+    return frame, [cg_frame]
 
 def map_cg_solvent_within_loop(curr_frame, frame):
     global cg_atom_nums
+    if curr_frame == 0:
+        print("Going through cg for first time")
     cg_frame = Frame(curr_frame, cg_atom_nums)
     for i, site in enumerate(cg_sites):
         coords = np.zeros(3)
@@ -254,6 +300,7 @@ def map_cg_solvent_within_loop(curr_frame, frame):
         charge = 0.
         for atom in cg_map[i]:
             #coords = coords + frame.atoms[sugar_atom_nums[atom]].loc #for gc mapping
+            #print(sugar_atom_nums[atom], len(frame.atoms))
             mass = frame.atoms[sugar_atom_nums[atom]].mass
             tot_mass = tot_mass + mass
             coords = coords + mass*frame.atoms[sugar_atom_nums[atom]].loc #for cm mapping
@@ -304,31 +351,17 @@ def plot_rdf(rdf_frames):
     plb.savefig("rdfs.pdf", bbox_inches="tight")
     return
 
-def calc_measures(frames, req="length", request=bond_quads, export=True):
-    print("Calculating bond "+req+"s")
-    if export:
-        f = open("bond_"+req+"s.csv", "a")
-    t_start = time.clock()
+def calc_measures(frames, out_file, req="length", request=bond_quads, export=True):
     measures = []
-    if export:
-        measure_names = ["-".join(name) for name in request]
-        f.write(",".join(measure_names) + "\n")
-    for i, frame in enumerate(frames):
-        perc = i * 100. / len(frames)
-        if(i%100 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
-            sys.stdout.flush()
+    #if export:
+        #measure_names = ["-".join(name) for name in request]
+        #out_file.write(",".join(measure_names) + "\n")
+    for frame in frames:
         measures.append(frame.calc_measure[req](request))
         if export:
             measures_text = [str(num) for num in measures[-1]]
-            f.write(",".join(measures_text) + "\n")
-    avg = np.mean(measures, axis=0)
-    t_end = time.clock()
-    if export:
-        f.truncate()
-        f.close()
-    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
-    return measures, avg
+            out_file.write(",".join(measures_text) + "\n")
+    return measures
 
 
 def polar_coords(xyz, axis1=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=True):
@@ -360,17 +393,17 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
     should modify this to include OW dipoles
     modify to drop frames I'm not using - optimise
     """
-    print("Calculating dipoles")
-    t_start = time.clock()
+    #print("Calculating dipoles")
+    #t_start = time.clock()
     old_dipoles = False
     if export:
         f = open("dipoles.csv", "a")
     dipoles = []
     for curr_frame, cg_frame in enumerate(cg_frames):
-        perc = curr_frame * 100. / len(cg_frames)
-        if(curr_frame%100 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
-            sys.stdout.flush()
+        #perc = curr_frame * 100. / len(cg_frames)
+        #if(curr_frame%100 == 0):
+            #sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
+            #sys.stdout.flush()
         frame_dipoles = np.zeros((len(cg_sites),3))
         for i, site in enumerate(cg_sites):
             #if site.atom_type == "OW":
@@ -409,7 +442,7 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
         #f.write("Finished frames")
         f.close()
     t_end = time.clock()
-    print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
+    #print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return dipoles
 
 def read_energy(energyfile, export=False):
@@ -482,25 +515,42 @@ def graph_output(output_all, request):
 def export_props(grofile, xtcfile, energyfile="", export=False, do_dipoles=False, cutoff=0, cm_map=False):
     global verbose
     t_start = time.clock()
-    frames, cg_frames = read_xtc_coarse(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff, cm_map=cm_map)
+    #frames, cg_frames = read_xtc_coarse(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff, cm_map=cm_map)
+    num_frames, frame, cg_frame, sel, univ = read_xtc_setup(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff, cm_map=cm_map)
     np.set_printoptions(precision=3, suppress=True)
+    if export:
+        f_dist = open("bond_lengths.csv", "a")
+        f_angle = open("bond_angles.csv", "a")
+        f_dihedral = open("bond_dihedrals.csv", "a")
     if cutoff:
         solvent_rdf(cg_frames, export=export)
     if energyfile:
         read_energy(energyfile, export=export)
-    cg_all_dists, cg_dists = calc_measures(cg_frames, "length", cg_bond_pairs, export=export)
-    cg_all_angles, cg_angles = calc_measures(cg_frames, "angle", cg_bond_triples, export=export)
-    cg_all_dihedrals, cg_dihedrals = calc_measures(cg_frames, "dihedral", cg_bond_quads, export=export)
-    if do_dipoles:
-        cg_dipoles = calc_dipoles(cg_frames, frames, export)
+    for frame_num, ts in enumerate(univ.trajectory):
+        #print("Main function frame: "+str(frame_num))
+        perc = frame_num * 100. / num_frames
+        if(frame_num%100 == 0):
+            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
+            sys.stdout.flush()
+        frame, cg_frame = read_xtc_frame(sel, ts, frame_num, frame, cg_frame)
+        #print(frame)
+        #print(cg_frame)
+        cg_all_dists = calc_measures(cg_frame, f_dist, "length", cg_bond_pairs, export=export)
+        cg_all_angles = calc_measures(cg_frame, f_angle, "angle", cg_bond_triples, export=export)
+        cg_all_dihedrals = calc_measures(cg_frame, f_dihedral, "dihedral", cg_bond_quads, export=export)
+        if do_dipoles:
+            cg_dipoles = calc_dipoles(cg_frame, frame, export)
     if verbose:
         print_output(cg_all_dists, cg_dists, cg_bond_pairs)
         print_output(cg_all_angles, cg_angles, cg_bond_triples)
         print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
+    if export:
+        f_dist.close()
+        f_angle.close()
+        f_dihedral.close()
     t_end = time.clock()
-    print("\rCalculated {0} frames in {1}s\n".format(len(cg_frames), (t_end - t_start)) + "-"*20)
-    return len(cg_frames)
-
+    print("\rCalculated {0} frames in {1}s\n".format(num_frames, (t_end - t_start)) + "-"*20)
+    return num_frames
 
 if __name__ == "__main__":
     parser = OptionParser()
@@ -530,6 +580,7 @@ if __name__ == "__main__":
                       help="Make more verbose")
     (options, args) = parser.parse_args()
     verbose = options.verbose
+    cm_map = options.cm_map
     if not options.grofile or not options.xtcfile:
         print("Must provide .gro and .xtc files to run")
         sys.exit(1)

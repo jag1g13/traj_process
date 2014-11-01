@@ -244,7 +244,6 @@ def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=Fal
     else:
         return [], cg_frames
 
-
 def map_cg_solvent_within_loop(curr_frame, frame):
     global cg_atom_nums
     cg_frame = Frame(curr_frame, cg_atom_nums)
