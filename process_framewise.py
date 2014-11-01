@@ -273,7 +273,7 @@ def read_xtc_setup(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=Fals
     cg_frame = map_cg_solvent_within_loop(0, frame)
     print(num_frames)
     if verbose:
-        cg_frames[0].show_atoms()
+        cg_frame.show_atoms()
     print("Done xtc setup\n"+"-"*20)
     return num_frames, [frame], [cg_frame], sel, u #placeholders for the frames, will be overwritten when reading in a new one
 
@@ -316,9 +316,9 @@ def map_cg_solvent_within_loop(curr_frame, frame):
     return cg_frame
 
 
-def solvent_rdf(cg_frames, export=False):
-    print("Calculating RDFs")
+def solvent_rdf(cg_frames, rdf_frames=[], export=False):
     t_start = time.clock()
+    print("Calculating RDFs")
     rdf_frames = [[], [], [], [], [], []]
     for i, frame in enumerate(cg_frames):
         perc = i * 100. / len(cg_frames)
@@ -383,7 +383,7 @@ def polar_coords(xyz, axis1=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=True
         polar[2] = polar[2]%(tpi)
     return polar
 
-def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_bonds, sugar_atom_nums=sugar_atom_nums, adjacent=adjacent):
+def calc_dipoles(cg_frames, frames, out_file, export=True, cg_internal_bonds=cg_internal_bonds, sugar_atom_nums=sugar_atom_nums, adjacent=adjacent):
     """
     starting to think this might be impossible
     dipole of a charged fragment is dependent on where you measure it from
@@ -396,8 +396,6 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
     #print("Calculating dipoles")
     #t_start = time.clock()
     old_dipoles = False
-    if export:
-        f = open("dipoles.csv", "a")
     dipoles = []
     for curr_frame, cg_frame in enumerate(cg_frames):
         #perc = curr_frame * 100. / len(cg_frames)
@@ -435,14 +433,8 @@ def calc_dipoles(cg_frames, frames, export=True, cg_internal_bonds=cg_internal_b
             #if frame_dipoles[i][0] < 0.1:
                 #print("No dipole--why?")
         if export:
-            #f.write("Frame_"+str(curr_frame))
-            np.savetxt(f, frame_dipoles, delimiter=",")
+            np.savetxt(out_file, frame_dipoles, delimiter=",")
         dipoles.append(frame_dipoles)
-    if export:
-        #f.write("Finished frames")
-        f.close()
-    t_end = time.clock()
-    #print("\rCalculated {0} frames in {1}s\n".format(len(frames), (t_end - t_start)) + "-"*20)
     return dipoles
 
 def read_energy(energyfile, export=False):
@@ -481,8 +473,8 @@ def read_energy(energyfile, export=False):
             f.close()
     energies = np.array(energies_str).astype(np.float)
     t_end = time.clock()
-    if verbose:
-        print("Average total energy is "+str(np.average(energies)))
+    #if verbose:
+        #print("Average total energy is "+str(np.average(energies)))
     print("Read {0} energies in {1}s".format(len(energies), (t_end - t_start)))
     print("-"*20)
     return energies
@@ -518,12 +510,12 @@ def export_props(grofile, xtcfile, energyfile="", export=False, do_dipoles=False
     #frames, cg_frames = read_xtc_coarse(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff, cm_map=cm_map)
     num_frames, frame, cg_frame, sel, univ = read_xtc_setup(grofile, xtcfile, keep_atomistic=do_dipoles, cutoff=cutoff, cm_map=cm_map)
     np.set_printoptions(precision=3, suppress=True)
+    rdf_frames = []
     if export:
         f_dist = open("bond_lengths.csv", "a")
         f_angle = open("bond_angles.csv", "a")
         f_dihedral = open("bond_dihedrals.csv", "a")
-    if cutoff:
-        solvent_rdf(cg_frames, export=export)
+        f_dipole = open("dipoles.csv", "a")
     if energyfile:
         read_energy(energyfile, export=export)
     for frame_num, ts in enumerate(univ.trajectory):
@@ -539,15 +531,18 @@ def export_props(grofile, xtcfile, energyfile="", export=False, do_dipoles=False
         cg_all_angles = calc_measures(cg_frame, f_angle, "angle", cg_bond_triples, export=export)
         cg_all_dihedrals = calc_measures(cg_frame, f_dihedral, "dihedral", cg_bond_quads, export=export)
         if do_dipoles:
-            cg_dipoles = calc_dipoles(cg_frame, frame, export)
-    if verbose:
-        print_output(cg_all_dists, cg_dists, cg_bond_pairs)
-        print_output(cg_all_angles, cg_angles, cg_bond_triples)
-        print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
+            cg_dipoles = calc_dipoles(cg_frame, frame, f_dipole, export)
+        if cutoff:
+            solvent_rdf(cg_frames, rdf_frames, export=export)
+    #if verbose:
+        #print_output(cg_all_dists, cg_dists, cg_bond_pairs)
+        #print_output(cg_all_angles, cg_angles, cg_bond_triples)
+        #print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
     if export:
         f_dist.close()
         f_angle.close()
         f_dihedral.close()
+        f_dipole.close()
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(num_frames, (t_end - t_start)) + "-"*20)
     return num_frames
