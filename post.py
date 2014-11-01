@@ -68,7 +68,7 @@ def graph_dipole_3d(dipoles_all, dists, angles, only_3d, num=-1):
         #r_atoms[i].append(np.average(rearrange_dists[(i+1)%6]))
         #r_atoms[i] = [1.,1.]
         r_atoms[i] = np.average(r[i])
-        theta_tmp = np.average(rearrange_angles[i])
+        theta_tmp = np.pi * np.average(rearrange_angles[i]) / 180.
         theta_atoms[i] = [-theta_tmp, theta_tmp]
     #create the wireframe for the sphere
     u = np.linspace(0, np.pi, 18)
