@@ -3,8 +3,11 @@ import post
 import os
 from glob import glob
 
+
 def test_post_general():
-    res = process.export_props("test_data/npt.gro", "test_data/npt.xtc", export=True, do_dipoles=True)
+    res = process.export_props("test_data/npt.gro",
+                               "test_data/npt.xtc",
+                               export=True, do_dipoles=True)
     res2 = post.process_all("auto")
     print("cleaning")
     print(glob("*.csv"))
