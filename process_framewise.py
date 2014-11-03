@@ -195,59 +195,9 @@ class Frame:
         return dihedrals
 
 
-def read_xtc_coarse(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=False):
-    global sugar_atom_nums, verbose
-    t_start = time.clock()
-    u = AtomGroup.Universe(grofile, xtcfile)
-    sel = u.selectAtoms("not resname SOL")
-    res_name = sel.resnames()[0]
-    if verbose:
-        print(sel)
-        print(res_name)
-        print(sel.names())
-    for name in sel.names():
-        sugar_atom_nums[name] = list(sel.names()).index(name)
-    if cutoff:
-        #if a cutoff is specified it means we want to calculate solvent RDF
-        sel = u.selectAtoms("resname "+res_name+" or around "+str(cutoff)+" resname "+res_name)
-        if verbose:
-            print(sel.resnames())
-            print(sel.names())
-    if keep_atomistic:
-        frames = []
-    cg_frames = []
-    i = 0
-    num_frames = len(u.trajectory)
-    print(num_frames)
-    for ts in u.trajectory:
-        perc = i * 100. / num_frames
-        if(i%100 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
-            sys.stdout.flush()
-        frame = Frame(i)
-        for atomname, coords, mass in zip(sel.names(), sel.get_positions(ts), sel.masses()):
-            if not cm_map:
-                mass = 1
-            frame.atoms.append(Atom(atomname, coords, atomic_charges[atomname], mass=mass))
-        cg_frames.append(map_cg_solvent_within_loop(i, frame))
-        if keep_atomistic:
-            frames.append(frame)
-        i += 1
-    t_end = time.clock()
-    print("\rRead {0} frames in {1}s".format(num_frames, (t_end - t_start)))
-    if verbose:
-        cg_frames[0].show_atoms()
-    print("-"*20)
-    #for atom in cg_frames[0].atoms:
-        #print(atom)
-    if keep_atomistic:
-        return frames, cg_frames
-    else:
-        return [], cg_frames
-
 def read_xtc_setup(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=False):
     global sugar_atom_nums, verbose
-    t_start = time.clock()
+    #t_start = time.clock()
     u = AtomGroup.Universe(grofile, xtcfile)
     sel = u.selectAtoms("not resname SOL")
     res_name = sel.resnames()[0]
@@ -271,71 +221,79 @@ def read_xtc_setup(grofile, xtcfile, keep_atomistic=False, cutoff=0, cm_map=Fals
             mass = 1
         frame.atoms.append(Atom(atomname, coords, atomic_charges[atomname], mass=mass))
     cg_frame = map_cg_solvent_within_loop(0, frame)
+    #if verbose:
+        #cg_frame.show_atoms()
     print(num_frames)
-    if verbose:
-        cg_frame.show_atoms()
     print("Done xtc setup\n"+"-"*20)
-    return num_frames, [frame], [cg_frame], sel, u #placeholders for the frames, will be overwritten when reading in a new one
+    return num_frames, frame, cg_frame, sel, u #placeholders for the frames, will be overwritten when reading in a new one
 
 def read_xtc_frame(sel, ts, frame_num, frame, cg_frame):
     global cm_map
     #print("Reading frame "+str(frame_num))
-    frame[0].num = frame_num
+    frame.num = frame_num
     for i, dat in enumerate(zip(sel.names(), sel.get_positions(ts), sel.masses())):
         atomname, coords, mass = dat[0], dat[1], dat[2]
         if not cm_map:
             mass = 1
-        frame[0].atoms[i] = Atom(atomname, coords, atomic_charges[atomname], mass=mass)
-    cg_frame = map_cg_solvent_within_loop(frame_num, frame[0])
-    return frame, [cg_frame]
+        frame.atoms[i] = Atom(atomname, coords, atomic_charges[atomname], mass=mass)
+    cg_frame = map_cg_solvent_within_loop(frame_num, frame, cg_frame)
+    return frame, cg_frame
 
-def map_cg_solvent_within_loop(curr_frame, frame):
+def map_cg_solvent_within_loop(curr_frame, frame, cg_frame=0):
     global cg_atom_nums
     if curr_frame == 0:
-        print("Going through cg for first time")
-    cg_frame = Frame(curr_frame, cg_atom_nums)
+        #print("Going through cg for first time")
+        cg_frame = Frame(curr_frame, cg_atom_nums)
+    cg_frame.num = curr_frame
     for i, site in enumerate(cg_sites):
         coords = np.zeros(3)
         tot_mass = 0.
         charge = 0.
         for atom in cg_map[i]:
-            #coords = coords + frame.atoms[sugar_atom_nums[atom]].loc #for gc mapping
-            #print(sugar_atom_nums[atom], len(frame.atoms))
             mass = frame.atoms[sugar_atom_nums[atom]].mass
             tot_mass = tot_mass + mass
             coords = coords + mass*frame.atoms[sugar_atom_nums[atom]].loc #for cm mapping
             charge = charge + frame.atoms[sugar_atom_nums[atom]].charge
         #coords = coords / len(cg_map[i])
         coords = coords / tot_mass #number of atoms cancels out
-        cg_frame.atoms.append(Atom(site, coords, charge))
+        if curr_frame == 0:
+            cg_frame.atoms.append(Atom(site, coords, charge))
+        else:
+            cg_frame.atoms[i] = Atom(site, coords, charge)
         if curr_frame == 0:
             cg_atom_nums[site] = i
-    for i, atom in enumerate(frame.atoms):
+    j = len(cg_sites)
+    for atom in frame.atoms:
         if atom.atom_type == "OW":
-            cg_frame.atoms.append(Atom("OW", atom.loc, 0.0))
+            if curr_frame == 0:
+                cg_frame.atoms.append(Atom("OW", atom.loc, 0.0))
+            else:
+                cg_frame.atoms[j] = Atom("OW", atom.loc, 0.0)
+            j += 1
     return cg_frame
 
 
-def solvent_rdf(cg_frames, rdf_frames=[], export=False):
-    t_start = time.clock()
-    print("Calculating RDFs")
-    rdf_frames = [[], [], [], [], [], []]
-    for i, frame in enumerate(cg_frames):
-        perc = i * 100. / len(cg_frames)
-        if(i%10 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
-            sys.stdout.flush()
-        for origin_name in cg_atom_nums:
-            origin_num = cg_atom_nums[origin_name]
-            origin_atom = frame.atoms[origin_num]
-            for far_atom in frame.atoms:
-                if far_atom.atom_type == "OW":
-                    #print(origin_num, frame.atoms.index(far_atom))
-                    rdf_frames[origin_num].append(frame.bond_length_atoms(origin_atom, far_atom))
-    if export:
-        plot_rdf(rdf_frames)
-    t_end = time.clock()
-    print("\rCalculated {0} frames in {1}s\n".format(len(cg_frames), (t_end - t_start)) + "-"*20)
+def solvent_rdf(cg_frame, rdf_frames=0, export=False):
+    #t_start = time.clock()
+    #print("Calculating RDFs")
+    if rdf_frames == 0:
+        rdf_frames = [[], [], [], [], [], []]
+    #for i, frame in enumerate(cg_frames):
+        #perc = i * 100. / len(cg_frames)
+        #if(i%10 == 0):
+            #sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
+            #sys.stdout.flush()
+    for origin_name in cg_atom_nums:
+        origin_num = cg_atom_nums[origin_name]
+        origin_atom = cg_frame.atoms[origin_num]
+        for far_atom in cg_frame.atoms:
+            if far_atom.atom_type == "OW":
+                #print(origin_num, frame.atoms.index(far_atom))
+                rdf_frames[origin_num].append(cg_frame.bond_length_atoms(origin_atom, far_atom))
+    #if export:
+        #plot_rdf(rdf_frames)
+    #t_end = time.clock()
+    #print("\rCalculated {0} frames in {1}s\n".format(len(cg_frames), (t_end - t_start)) + "-"*20)
     return rdf_frames
 
 
@@ -351,16 +309,16 @@ def plot_rdf(rdf_frames):
     plb.savefig("rdfs.pdf", bbox_inches="tight")
     return
 
-def calc_measures(frames, out_file, req="length", request=bond_quads, export=True):
+def calc_measures(frame, out_file, req="length", request=bond_quads, export=True):
     measures = []
     #if export:
         #measure_names = ["-".join(name) for name in request]
         #out_file.write(",".join(measure_names) + "\n")
-    for frame in frames:
-        measures.append(frame.calc_measure[req](request))
-        if export:
-            measures_text = [str(num) for num in measures[-1]]
-            out_file.write(",".join(measures_text) + "\n")
+    #for frame in frames:
+    measures.append(frame.calc_measure[req](request))
+    if export:
+        measures_text = [str(num) for num in measures[-1]]
+        out_file.write(",".join(measures_text) + "\n")
     return measures
 
 
@@ -383,7 +341,7 @@ def polar_coords(xyz, axis1=np.array([0,0,0]), axis2=np.array([0,0,0]), mod=True
         polar[2] = polar[2]%(tpi)
     return polar
 
-def calc_dipoles(cg_frames, frames, out_file, export=True, cg_internal_bonds=cg_internal_bonds, sugar_atom_nums=sugar_atom_nums, adjacent=adjacent):
+def calc_dipoles(cg_frame, frame, out_file, export=True, cg_internal_bonds=cg_internal_bonds, sugar_atom_nums=sugar_atom_nums, adjacent=adjacent):
     """
     starting to think this might be impossible
     dipole of a charged fragment is dependent on where you measure it from
@@ -397,41 +355,41 @@ def calc_dipoles(cg_frames, frames, out_file, export=True, cg_internal_bonds=cg_
     #t_start = time.clock()
     old_dipoles = False
     dipoles = []
-    for curr_frame, cg_frame in enumerate(cg_frames):
+    #for curr_frame, cg_frame in enumerate(cg_frames):
         #perc = curr_frame * 100. / len(cg_frames)
         #if(curr_frame%100 == 0):
             #sys.stdout.write("\r{:2.0f}% ".format(perc) + "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) )
             #sys.stdout.flush()
-        frame_dipoles = np.zeros((len(cg_sites),3))
-        for i, site in enumerate(cg_sites):
-            #if site.atom_type == "OW":
-                #continue
-            dipole = np.zeros(3)
-            #print(site.atom_type)
-            if old_dipoles:
-                #next 4 lines measure dipole from origin - also inefficient method
-                for j, bond in enumerate(cg_internal_bonds[site]):
-                    atom1 = frames[curr_frame].atoms[sugar_atom_nums[bond[0]]]
-                    atom2 = frames[curr_frame].atoms[sugar_atom_nums[bond[1]]]
-                    dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
-            else:
-                #5 lines measure dipole from centre of charge - seems reasonable
-                for atom_name in cg_internal_map[site]:
-                    atom = frames[curr_frame].atoms[sugar_atom_nums[atom_name]]
-                    dipole += atom.loc * atom.charge #first calc from origin
-                cg_atom = cg_frame.atoms[cg_atom_nums[site]]
-                dipole -= cg_atom.loc * cg_atom.charge #then recentre it
-                #adjust this to check if it's just giving me the coords back
-                #dipole += cg_atom.loc
-            #next 4 lines measure dipole from cg_bead location - ignores charge on C
-            #cg_atom = cg_frame.atoms[cg_atom_nums[site]]
-            #for atom_name in cg_internal_map[site]:
-                #atom = frames[curr_frame].atoms[sugar_atom_nums[atom_name]]
-                #dipole += (atom.loc - cg_atom.loc) * atom.charge
-            norm, bisec = cg_frame.angle_norm_bisect(cg_atom_nums[adjacent[site][0]], i, cg_atom_nums[adjacent[site][1]])
-            frame_dipoles[i] += polar_coords(dipole, norm, bisec)
-            #if frame_dipoles[i][0] < 0.1:
-                #print("No dipole--why?")
+    frame_dipoles = np.zeros((len(cg_sites),3))
+    for i, site in enumerate(cg_sites):
+        #if site.atom_type == "OW":
+            #continue
+        dipole = np.zeros(3)
+        #print(site.atom_type)
+        if old_dipoles:
+            #next 4 lines measure dipole from origin - also inefficient method
+            for j, bond in enumerate(cg_internal_bonds[site]):
+                atom1 = frame.atoms[sugar_atom_nums[bond[0]]]
+                atom2 = frame.atoms[sugar_atom_nums[bond[1]]]
+                dipole += (atom1.loc - atom2.loc) * (atom1.charge - atom2.charge)
+        else:
+            #5 lines measure dipole from centre of charge - seems reasonable
+            for atom_name in cg_internal_map[site]:
+                atom = frame.atoms[sugar_atom_nums[atom_name]]
+                dipole += atom.loc * atom.charge #first calc from origin
+            cg_atom = cg_frame.atoms[cg_atom_nums[site]]
+            dipole -= cg_atom.loc * cg_atom.charge #then recentre it
+            #adjust this to check if it's just giving me the coords back
+            #dipole += cg_atom.loc
+        #next 4 lines measure dipole from cg_bead location - ignores charge on C
+        #cg_atom = cg_frame.atoms[cg_atom_nums[site]]
+        #for atom_name in cg_internal_map[site]:
+            #atom = frames[curr_frame].atoms[sugar_atom_nums[atom_name]]
+            #dipole += (atom.loc - cg_atom.loc) * atom.charge
+        norm, bisec = cg_frame.angle_norm_bisect(cg_atom_nums[adjacent[site][0]], i, cg_atom_nums[adjacent[site][1]])
+        frame_dipoles[i] += polar_coords(dipole, norm, bisec)
+        #if frame_dipoles[i][0] < 0.1:
+            #print("No dipole--why?")
         if export:
             np.savetxt(out_file, frame_dipoles, delimiter=",")
         dipoles.append(frame_dipoles)
@@ -533,16 +491,16 @@ def export_props(grofile, xtcfile, energyfile="", export=False, do_dipoles=False
         if do_dipoles:
             cg_dipoles = calc_dipoles(cg_frame, frame, f_dipole, export)
         if cutoff:
-            solvent_rdf(cg_frames, rdf_frames, export=export)
-    #if verbose:
-        #print_output(cg_all_dists, cg_dists, cg_bond_pairs)
-        #print_output(cg_all_angles, cg_angles, cg_bond_triples)
-        #print_output(cg_all_dihedrals, cg_dihedrals, cg_bond_quads)
+            if frame_num == 0:
+                rdf_frames = solvent_rdf(cg_frame, 0, export=export)
+            else:
+                rdf_frames = solvent_rdf(cg_frame, rdf_frames, export=export)
     if export:
         f_dist.close()
         f_angle.close()
         f_dihedral.close()
         f_dipole.close()
+        plot_rdf(rdf_frames)
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n".format(num_frames, (t_end - t_start)) + "-"*20)
     return num_frames
