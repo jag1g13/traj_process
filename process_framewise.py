@@ -160,14 +160,14 @@ class Frame:
         for i in xrange(start, end):
             print(self.atoms[i])
 
-    def get_bond_lens(self, request=bond_pairs):
+    def get_bond_lens(self, request=cg_bond_pairs):
         dists = np.zeros(len(request))
         for i, pair in enumerate(request):
             dists[i] = self.bond_length(self.atom_nums[pair[0]],
                                         self.atom_nums[pair[1]])
         return dists
 
-    def get_bond_angles(self, request=bond_triples):
+    def get_bond_angles(self, request=cg_bond_triples):
         angles = np.zeros(len(request))
 #       use the same code as dihedrals, just give the same atom twice
         for i, triple in enumerate(request):
@@ -177,7 +177,7 @@ class Frame:
                                         self.atom_nums[triple[2]])
         return angles
 
-    def get_bond_dihedrals(self, request=bond_quads):
+    def get_bond_dihedrals(self, request=cg_bond_quads):
         dihedrals = np.zeros(len(request))
         for i, quad in enumerate(request):
             dihedrals[i] = self.bond_angle(self.atom_nums[quad[0]],
@@ -344,7 +344,7 @@ def polar_coords(xyz, ax1=np.array([0, 0, 0]),
     polar[0] = np.sqrt(xy + xyz[2]**2)
     polar[1] = np.arctan2(np.sqrt(xy), xyz[2]) - ax1[1]
     polar[2] = np.arctan2(xyz[1], xyz[0]) - ax2[2]
-    if axis2[1] < 0:
+    if ax2[1] < 0:
         polar[2] = polar[2] + tpi
     if mod:
         polar[1] = polar[1] % (tpi)
@@ -436,8 +436,7 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
                  do_dipoles=False, cutoff=0, cm_map=False):
     global verbose
     t_start = time.clock()
-    pack = read_xtc_setup(grofile, xtcfile, keep_atomistic=do_dipoles,
-                          cutoff=cutoff, cm_map=cm_map)
+    pack = read_xtc_setup(grofile, xtcfile, cutoff=cutoff, cm_map=cm_map)
     num_frames, frame, cg_frame, sel, univ = pack
     np.set_printoptions(precision=3, suppress=True)
     rdf_frames = []
@@ -512,10 +511,7 @@ if __name__ == "__main__":
         print("Must provide .gro and .xtc files to run")
         sys.exit(1)
     if verbose:
-        cProfile.run("export_props(options.grofile, options.xtcfile,
-                     energyfile=options.energyfile, export=options.export,
-                     do_dipoles=options.dipoles, cutoff=options.cutoff,
-                     cm_map=options.cm_map)", "profile")
+        cProfile.run("export_props(options.grofile, options.xtcfile, energyfile=options.energyfile, export=options.export, do_dipoles=options.dipoles, cutoff=options.cutoff, cm_map=options.cm_map)", "profile")
         p = pstats.Stats("profile")
         p.sort_stats('time').print_stats(25)
     else:

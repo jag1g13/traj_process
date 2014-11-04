@@ -140,7 +140,7 @@ def test_export_dipoles():
     try:
         os.remove("dipoles.csv")
     except OSError:
-        pass    # it wasn't there nevermind
+        pass    # it wasn't there, nevermind
     res = process.export_props("test_data/npt.gro",
                                "test_data/npt.xtc",
                                do_dipoles=True, export=True)
