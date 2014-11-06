@@ -4,7 +4,7 @@ import cProfile
 import pstats
 
 from post_graph import *
-from post_dipoles import *
+from post_dipole import *
 
 if __name__ == "__main__":
     global export

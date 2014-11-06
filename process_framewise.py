@@ -20,71 +20,15 @@ from scipy import optimize
 import pylab as plb
 import cProfile
 import pstats
-from math import sqrt
+from math import sqrt, atan
 from optparse import OptionParser
+
+from process_mapping import *
 
 verbose = False
 cm_map = False
 
 sugar_atom_nums = {}
-
-sugar_atoms = ["C1", "O1", "HO1", "C2", "O2", "HO2",
-               "C3", "O3", "HO3", "C4", "O4", "HO4",
-               "C5", "O5", "C6",  "O6", "HO6"]
-
-# atomic charges
-atomic_charges = {"C4": 0.232,  "O4": -0.642, "HO4": 0.410, "C3": 0.232,
-                  "O3": -0.642, "HO3": 0.410, "C2": 0.232,  "O2": -0.642,
-                  "HO2": 0.410, "C6": 0.232,  "O6": -0.642, "HO6": 0.410,
-                  "C5": 0.376,  "O5": -0.480, "C1": 0.232,  "O1": -0.538,
-                  "HO1": 0.410, "HW1": 0.41,  "HW2": 0.41,  "OW": -0.82}
-
-# bond dihedrals we want to know
-bond_quads = []
-
-# names of the cg sites
-cg_sites = ["C1", "C2", "C3", "C4", "C5", "O5"]
-
-# atom numbers of the cg sites
-cg_atom_nums = {}
-
-# which atoms map to which cg site, same order as above
-cg_internal_map = {"C1": ["C1", "O1", "HO1"], "C2": ["C2", "O2", "HO2"],
-                   "C3": ["C3", "O3", "HO3"], "C4": ["C4", "O4", "HO4"],
-                   "C5": ["C5", "C6", "O6", "HO6"], "O5": ["O5"]}
-
-cg_map = [["C1"], ["C2"], ["C3"],
-          ["C4"], ["C5"], ["O5"]]
-
-# remade this as a dictionary in preparation for the new coarse graining method
-cg_map_new = {"C1": ["C1"], "C2": ["C2"], "C3": ["C3"],
-              "C4": ["C4"], "C5": ["C5"], "O5": ["O5"],
-              "OW": ["OW"]}
-
-# bonds between cg sites
-cg_bond_pairs = [["C1", "C2"], ["C2", "C3"], ["C3", "C4"], ["C4", "C5"],
-                 ["C5", "O5"], ["O5", "C1"]]
-
-# bond angles between cg sites
-cg_bond_triples = [["O5", "C1", "C2"], ["C1", "C2", "C3"], ["C2", "C3", "C4"],
-                   ["C3", "C4", "C5"], ["C4", "C5", "O5"], ["C5", "O5", "C1"]]
-
-# bond dihedrals between cg sites
-cg_bond_quads = [["O5", "C1", "C2", "C3"], ["C1", "C2", "C3", "C4"],
-                 ["C2", "C3", "C4", "C5"], ["C3", "C4", "C5", "O5"],
-                 ["C4", "C5", "O5", "C1"], ["C5", "O5", "C1", "C2"]]
-
-# adjacent sites, really just a remapped version of cg_bond_pairs
-adjacent = {"C1": ["O5", "C2"], "C2": ["C1", "C3"], "C3": ["C2", "C4"],
-            "C4": ["C3", "C5"], "C5": ["C4", "O5"], "O5": ["C5", "C1"]}
-
-# bonds within a cg site
-cg_internal_bonds = {"C1": [["C1", "O1"], ["O1", "HO1"]],
-                     "C2": [["C2", "O2"], ["O2", "HO2"]],
-                     "C3": [["C3", "O3"], ["O3", "HO3"]],
-                     "C4": [["C4", "O4"], ["O4", "HO4"]],
-                     "C5": [["C5", "C6"], ["C6", "O6"], ["O6", "HO6"]],
-                     "O5": [["O5", "O5"]]}
 
 
 class Atom:
@@ -352,18 +296,22 @@ def polar_coords(xyz, ax1=np.array([0, 0, 0]),
     return polar
 
 
-def calc_dipoles(cg_frame, frame, out_file, export=True,
+def calc_dipoles(cg_frame, frame, out_file, outfile_sum, export=True,
                  cg_internal_bonds=cg_internal_bonds,
                  sugar_atom_nums=sugar_atom_nums, adjacent=adjacent):
     """
     dipole of a charged fragment is dependent on where you measure it from
+    so now includes flag to make beads neutral
     should modify this to include OW dipoles
     """
     old_dipoles = False
+    charge_redist = True   # redistribute charge, make all beads neutral
     dipoles = []
     frame_dipoles = np.zeros((len(cg_sites), 3))
     for i, site in enumerate(cg_sites):
+        num_atoms = float(len(cg_internal_map[site]))
         dipole = np.zeros(3)
+        dipole_sum = np.zeros(3)
         if old_dipoles:     # calculate dipole from sum of bonds
             for j, bond in enumerate(cg_internal_bonds[site]):
                 atom1 = frame.atoms[sugar_atom_nums[bond[0]]]
@@ -371,17 +319,25 @@ def calc_dipoles(cg_frame, frame, out_file, export=True,
                 dipole += (atom1.loc - atom2.loc) *\
                           (atom1.charge - atom2.charge)
         else:   # dipole wrt origin then transpose
+            cg_atom = cg_frame.atoms[cg_atom_nums[site]]
             for atom_name in cg_internal_map[site]:
                 atom = frame.atoms[sugar_atom_nums[atom_name]]
-                dipole += atom.loc * atom.charge    # first calc from origin
-            cg_atom = cg_frame.atoms[cg_atom_nums[site]]
-            dipole -= cg_atom.loc * cg_atom.charge  # then recentre it
+                charge = atom.charge
+                if charge_redist:
+                    charge -= cg_atom.charge / num_atoms
+                dipole += atom.loc * charge    # first calc from origin
+            if not charge_redist:
+                dipole -= cg_atom.loc * cg_atom.charge  # then recentre it
+            # sum the dipoles, check that they equal the total molecular dipole
+        dipole_sum += dipole
         norm, bisec = cg_frame.norm_bisec(cg_atom_nums[adjacent[site][0]], i,
                                           cg_atom_nums[adjacent[site][1]])
         frame_dipoles[i] += polar_coords(dipole, norm, bisec)
         if export:
             np.savetxt(out_file, frame_dipoles, delimiter=",")
         dipoles.append(frame_dipoles)
+    if export:
+        np.savetxt(outfile_sum, dipole_sum, delimiter=",")
     return dipoles
 
 
@@ -445,6 +401,7 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
         f_angle = open("bond_angles.csv", "a")
         f_dihedral = open("bond_dihedrals.csv", "a")
         f_dipole = open("dipoles.csv", "a")
+        f_dipole_sum = open("dipole_sums.csv", "a")
     if energyfile:
         read_energy(energyfile, export=export)
     for frame_num, ts in enumerate(univ.trajectory):
@@ -461,7 +418,8 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
         cg_dihedrals = calc_measures(cg_frame, f_dihedral,
                                      "dihedral", cg_bond_quads, export=export)
         if do_dipoles:
-            cg_dipoles = calc_dipoles(cg_frame, frame, f_dipole, export)
+            cg_dipoles = calc_dipoles(cg_frame, frame, f_dipole,
+                                      f_dipole_sum, export)
         if cutoff:
             if frame_num == 0:
                 rdf_frames = solvent_rdf(cg_frame, 0, export=export)
@@ -472,6 +430,7 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
         f_angle.close()
         f_dihedral.close()
         f_dipole.close()
+        f_dipole_sum.close()
         plot_rdf(rdf_frames)
     t_end = time.clock()
     print("\rCalculated {0} frames in {1}s\n"
@@ -504,6 +463,9 @@ if __name__ == "__main__":
     parser.add_option("-v", "--verbose", action="store_true",
                       dest="verbose", default=False,
                       help="Make more verbose")
+    parser.add_option("-s", "--science", action="store_true",
+                      dest="science", default=False,
+                      help="KSP based science")
     (options, args) = parser.parse_args()
     verbose = options.verbose
     cm_map = options.cm_map
@@ -519,3 +481,5 @@ if __name__ == "__main__":
                      energyfile=options.energyfile, export=options.export,
                      do_dipoles=options.dipoles, cutoff=options.cutoff,
                      cm_map=options.cm_map)
+    if options.science:
+        print(time.strftime("%c"))
