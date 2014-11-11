@@ -5,9 +5,7 @@ import os.path
 import matplotlib.pyplot as plt
 from scipy import optimize
 import pylab as plb
-import pyradi.ryplot as ryplot
 from matplotlib import cm
-import rpy2.robjects as robjects
 
 
 # bonds between cg sites
