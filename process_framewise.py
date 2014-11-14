@@ -23,7 +23,7 @@ import pstats
 from math import sqrt, atan
 from optparse import OptionParser
 
-from process_mapping import *
+from process_mapping_toluene import *
 
 verbose = False
 cm_map = False
@@ -161,8 +161,13 @@ def read_xtc_setup(grofile, xtcfile, cutoff=0, cm_map=False):
         atomname, coords, mass = pack
         if not cm_map:
             mass = 1
-        frame.atoms.append(Atom(atomname, coords,
-                                atomic_charges[atomname], mass=mass))
+        try:
+            charge = atomic_charges[atomname]
+        except KeyError:
+            pass
+        else:
+            frame.atoms.append(Atom(atomname, coords,
+                                    atomic_charges[atomname], mass=mass))
     cg_frame = map_cg_solvent_within_loop(0, frame)
     print(num_frames)
     print("Done xtc setup\n"+"-"*20)
@@ -179,14 +184,21 @@ def read_xtc_frame(sel, ts, frame_num, frame, cg_frame):
     """
     global cm_map
     frame.num = frame_num
+    j = 0
     for i, dat in enumerate(zip(sel.names(),
                                 sel.get_positions(ts),
                                 sel.masses())):
         atomname, coords, mass = dat[0], dat[1], dat[2]
         if not cm_map:
             mass = 1
-        frame.atoms[i] = Atom(atomname, coords,
-                              atomic_charges[atomname], mass=mass)
+        try:
+            charge = atomic_charges[atomname]
+        except KeyError:
+            pass
+        else:
+            frame.atoms[j] = Atom(atomname, coords,
+                                atomic_charges[atomname], mass=mass)
+            j += 1
     cg_frame = map_cg_solvent_within_loop(frame_num, frame, cg_frame)
     return frame, cg_frame
 
