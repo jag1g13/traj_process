@@ -23,7 +23,7 @@ import pstats
 from math import sqrt, atan
 from optparse import OptionParser
 
-from process_mapping_toluene import *
+from process_mapping import *
 
 verbose = False
 cm_map = False
@@ -148,6 +148,7 @@ def read_xtc_setup(grofile, xtcfile, cutoff=0, cm_map=False):
         sugar_atom_nums[name] = list(sel.names()).index(name)
 #       if a cutoff is specified it means we want to calculate solvent RDF
     if cutoff:
+        # select the first residue and anything within 'cutoff' nm
         sel = u.selectAtoms("resname " + res_name +
                             " or around " + str(cutoff) +
                             " resname " + res_name)
@@ -162,14 +163,15 @@ def read_xtc_setup(grofile, xtcfile, cutoff=0, cm_map=False):
         if not cm_map:
             mass = 1
         try:
-            charge = atomic_charges[atomname]
+            atomic_charges[atomname]
         except KeyError:
             pass
         else:
             frame.atoms.append(Atom(atomname, coords,
                                     atomic_charges[atomname], mass=mass))
-    cg_frame = map_cg_solvent_within_loop(0, frame)
     print(num_frames)
+    print(sugar_atom_nums)
+    cg_frame = map_cg_solvent_within_loop(0, frame)
     print("Done xtc setup\n"+"-"*20)
 #   return the total number of frames in trajectory
 #   placeholders for the two Frame objects
@@ -226,7 +228,7 @@ def map_cg_solvent_within_loop(curr_frame, frame, cg_frame=0):
             tot_mass = tot_mass + mass
             coords = coords + mass*frame.atoms[sugar_atom_nums[atom]].loc
             charge = charge + frame.atoms[sugar_atom_nums[atom]].charge
-        coords = coords / tot_mass  # number of atoms cancels out
+        coords /= tot_mass  # number of atoms cancels out
         if curr_frame == 0:
             cg_frame.atoms.append(Atom(site, coords, charge))
         else:
@@ -301,7 +303,7 @@ def polar_coords(xyz, ax1=np.array([0, 0, 0]),
     polar[1] = np.arctan2(np.sqrt(xy), xyz[2]) - ax1[1]
     polar[2] = np.arctan2(xyz[1], xyz[0]) - ax2[2]
     if ax2[1] < 0:
-        polar[2] = polar[2] + tpi
+        polar[2] += tpi
     if mod:
         polar[1] = polar[1] % (tpi)
         polar[2] = polar[2] % (tpi)
