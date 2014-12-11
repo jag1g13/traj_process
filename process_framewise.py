@@ -24,6 +24,7 @@ from optparse import OptionParser
 
 from process_mapping import *
 from frame import Frame, Atom, sugar_atom_nums
+from field_map import FieldMap
 
 verbose = False
 cm_map = False
@@ -309,6 +310,7 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
     num_frames, frame, cg_frame, sel, univ = pack
     np.set_printoptions(precision=3, suppress=True)
     rdf_frames = []
+    field = FieldMap()
     if export:
         f_dist = open("bond_lengths.csv", "a")
         f_angle = open("bond_angles.csv", "a")
@@ -319,17 +321,21 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
         read_energy(energyfile, export=export)
     for frame_num, ts in enumerate(univ.trajectory):
         perc = frame_num * 100. / num_frames
-        if(frame_num % 100 == 0):
-            sys.stdout.write("\r{:2.0f}% ".format(perc) +
-                             "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)))
+        if(frame_num % 50 == 0):
+            #sys.stdout.write("\r{:2.0f}% ".format(perc) +
+            #                 "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)))
+            sys.stdout.write("{:2.0f}% ".format(perc) +
+                             "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) + '\n')
             sys.stdout.flush()
+            field.setup_grid(frame)
         frame, cg_frame = read_xtc_frame(sel, ts, frame_num, frame, cg_frame)
-        cg_dists = calc_measures(cg_frame, f_dist,
-                                 "length", cg_bond_pairs, export=export)
-        cg_angles = calc_measures(cg_frame, f_angle,
-                                  "angle", cg_bond_triples, export=export)
-        cg_dihedrals = calc_measures(cg_frame, f_dihedral,
-                                     "dihedral", cg_bond_quads, export=export)
+        if export:
+            cg_dists = calc_measures(cg_frame, f_dist,
+                                     "length", cg_bond_pairs, export=export)
+            cg_angles = calc_measures(cg_frame, f_angle,
+                                      "angle", cg_bond_triples, export=export)
+            cg_dihedrals = calc_measures(cg_frame, f_dihedral,
+                                         "dihedral", cg_bond_quads, export=export)
         if do_dipoles:
             cg_dipoles = calc_dipoles(cg_frame, frame, f_dipole,
                                       f_dipole_sum, export)
