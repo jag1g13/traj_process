@@ -305,13 +305,12 @@ def print_output(output_all, output, request):
 def export_props(grofile, xtcfile, energyfile="", export=False,
                  do_dipoles=False, cutoff=0, cm_map=False):
     global verbose
-    debug = True
+    debug = False
     t_start = time.clock()
     pack = read_xtc_setup(grofile, xtcfile, cutoff=cutoff, cm_map=cm_map)
     num_frames, frame, cg_frame, sel, univ = pack
     np.set_printoptions(precision=3, suppress=True)
     rdf_frames = []
-    field = FieldMap()
     if export:
         f_dist = open("bond_lengths.csv", "a")
         f_angle = open("bond_angles.csv", "a")
@@ -329,6 +328,8 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
             #                  "X" * int(0.2*perc) + "-" * int(0.2*(100-perc)) + '\n')
             sys.stdout.flush()
         frame, cg_frame = read_xtc_frame(sel, ts, frame_num, frame, cg_frame)
+        if frame_num == 0:
+            field = FieldMap(frame)
         if export:
             cg_dists = calc_measures(cg_frame, f_dist,
                                      "length", cg_bond_pairs, export=export)
@@ -338,7 +339,7 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
                                          "dihedral", cg_bond_quads, export=export)
         if do_dipoles:
             field.setup_grid(frame)
-            field.calc_field(frame)
+            field.calc_field_monopoles(frame)
             # cg_dipoles = calc_dipoles(cg_frame, frame, f_dipole,
             #                           f_dipole_sum, export)
         if cutoff:
@@ -359,8 +360,7 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
     print("\rCalculated {0} frames in {1}s\n"
           .format(num_frames, (t_end - t_start)) + "-"*20)
     print(field)
-    print(field.grid[2])
-    field.plot(1)
+    #field.plot(1)
     return num_frames
 
 if __name__ == "__main__":
