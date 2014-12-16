@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 # from scipy import optimize
 from math import sqrt
+from math import cos
 
 # from frame import Frame
 
@@ -77,7 +78,7 @@ class FieldMap:
                     self.grid_dipole[i][j][k] = 0.
                     for dipole in self.dipoles:
                         #self.grid_monopole[i][j][k] += atom.charge / self.dist_sqr(atom, i, j, k)
-                        self.grid_dipole[i][j][k] += dipole[6] * dip_angle /\
+                        self.grid_dipole[i][j][k] += dipole[6] * cos(dip_angle) /\
                                                      dist_sqr(dipole[0], dipole[1], dipole[2],
                                                               i, j, k)
                     # self.grid[i][j][k] *= inveps
