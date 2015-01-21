@@ -15,7 +15,8 @@ class FieldMap:
         self.border = 1       # disance from molecule that the grid extends in nm
         # self.grid_dim = [3, 75, 75]       # looks okay as an image
         # self.grid_dim = [3, 125, 125]     # looks good as an image
-        self.grid_dim = [5, 5, 5]     # looks bad as an image
+        #self.grid_dim = [5, 5, 5]     # looks bad as an image
+        self.grid_dim = [15, 15, 15]
         self.grid_monopole = np.zeros(self.grid_dim)
         self.grid_dipole = np.zeros(self.grid_dim)
         self.dipoles = np.ndarray([len(frame.atoms), 7])  # for each atom store dipole coords, vector and magnitude
