@@ -282,26 +282,27 @@ def graph_energy(energies):
     plt.close()
 
 
-def auto(dists, angles, dihedrals, dipoles, energies, only_3d):
-    if not only_3d:
-        graph_energy(energies)
+def auto(dists, angles, dihedrals, dipoles, energies, do_dipoles):
+    if do_dipoles:
+        for i in [0, 1, 2]:
+            print("dipoles_"+str(i))
+            graph_dipole(dipoles, part=i)
+            graph_dipole_polar(dipoles, part=i)
+            graph_dipole_time(dipoles, part=i)
+        graph_dipole_3d(dipoles, dists, angles, only_3d)
+    else:
+        # graph_energy(energies)
         for i in [[dists, "dists"],
                   [angles, "angles"],
                   [dihedrals, "dihedrals"]]:
             print(i[1])
             graph_output(i[0], i[1])
             graph_output_time(i[0], i[1])
-        for i in [0, 1, 2]:
-            print("dipoles_"+str(i))
-            graph_dipole(dipoles, part=i)
-            graph_dipole_polar(dipoles, part=i)
-            graph_dipole_time(dipoles, part=i)
-    graph_dipole_3d(dipoles, dists, angles, only_3d)
 
 
-def process_all(do_auto, only_3d=False):
+def process_all(do_auto, do_dipoles=False):
     t_start = time.clock()
-    f = open("bond_lengths.csv", "r")
+    f = open("length.csv", "r")
     dists = []
     for line in f:
         try:
@@ -310,7 +311,7 @@ def process_all(do_auto, only_3d=False):
         except:
             pass
     f.close()
-    f = open("bond_angles.csv", "r")
+    f = open("angle.csv", "r")
     angles = []
     for line in f:
         try:
@@ -320,7 +321,7 @@ def process_all(do_auto, only_3d=False):
             pass
     f.close()
     dihedrals = []
-    f = open("bond_dihedrals.csv", "r")
+    f = open("dihedral.csv", "r")
     for line in f:
         try:
             tmp = [float(t) for t in line.split(",")]
@@ -329,26 +330,27 @@ def process_all(do_auto, only_3d=False):
             pass
     f.close()
     dipoles = []
-    f = open("dipoles.csv", "r")
-    i = 0
-    for line in f:
-        try:
-            tmp = [float(t) for t in line.split(",")]
-            if i % 6 == 0:
-                dipoles.append([])
-            dipoles[-1].append(np.array(tmp))
-            i += 1
-        except:
-            pass
-    f.close()
-    f = open("energies.csv", "r")
+    if do_dipoles:
+        f = open("dipoles.csv", "r")
+        i = 0
+        for line in f:
+            try:
+                tmp = [float(t) for t in line.split(",")]
+                if i % 6 == 0:
+                    dipoles.append([])
+                dipoles[-1].append(np.array(tmp))
+                i += 1
+            except:
+                pass
+        f.close()
+    # f = open("energies.csv", "r")
     energies = []
-    for line in f:
-        energies.append(float(line))
-    f.close()
+    # for line in f:
+    #     energies.append(float(line))
+    # f.close()
     np.set_printoptions(precision=3, suppress=True)
     if do_auto:
-        auto(dists, angles, dihedrals, dipoles, energies, only_3d)
+        auto(dists, angles, dihedrals, dipoles, energies, do_dipoles)
     else:
         print("Ready for commands")
         while True:

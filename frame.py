@@ -1,4 +1,5 @@
 from math import sqrt
+import numpy as np
 from process_mapping import *
 
 sugar_atom_nums = {}

@@ -312,9 +312,9 @@ def export_props(grofile, xtcfile, energyfile="", export=False,
     np.set_printoptions(precision=3, suppress=True)
     rdf_frames = []
     if export:
-        f_dist = open("bond_lengths.csv", "a")
-        f_angle = open("bond_angles.csv", "a")
-        f_dihedral = open("bond_dihedrals.csv", "a")
+        f_dist = open("length.csv", "a")
+        f_angle = open("angle.csv", "a")
+        f_dihedral = open("dihedral.csv", "a")
         f_dipole = open("dipoles.csv", "a")
         f_dipole_sum = open("dipole_sums.csv", "a")
     if energyfile:

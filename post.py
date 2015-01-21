@@ -13,11 +13,11 @@ if __name__ == "__main__":
                       action="store_true", dest="auto", default=False,
                       help="Plot everything automatically")
     parser.add_option("-d", "--dipoles",
-                      action="store_true", dest="only_3d", default=False,
+                      action="store_true", dest="do_dipoles", default=False,
                       help="Automatically do only interactive 3d dipoles")
     parser.add_option("-e", "--export",
                       action="store_true", dest="export", default=True,
                       help="Save fitting parameters")
     (options, args) = parser.parse_args()
     export = options.export
-    process_all(options.auto, options.only_3d)
+    process_all(options.auto, options.do_dipoles)
